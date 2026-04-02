@@ -33,15 +33,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
 
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      - name: Install dependencies
+        run: npm ci
 
       - name: Lint Edge Functions
         run: deno lint --config supabase/functions/deno.json supabase/functions
@@ -80,7 +84,7 @@ jobs:
             secrets+=("DISABLE_POST_RACE_BRIEFING_WINDOW=$DISABLE_POST_RACE_BRIEFING_WINDOW")
           fi
 
-          supabase secrets set "${secrets[@]}" --project-ref "$SUPABASE_PROJECT_ID"
+          npx supabase secrets set "${secrets[@]}" --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: Deploy Edge Functions
-        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID" --use-api
+        run: npx supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID" --use-api

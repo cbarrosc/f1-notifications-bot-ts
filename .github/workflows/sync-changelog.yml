@@ -16,6 +16,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -110,3 +111,10 @@ jobs:
             --head "${{ steps.changelog.outputs.branch }}" \
             --title "docs: update changelog for ${RELEASE_TAG}" \
             --body "This PR syncs CHANGELOG.md with the published GitHub Release ${RELEASE_TAG}."
+
+      - name: Trigger CI for changelog branch
+        if: steps.changelog.outputs.updated == 'true'
+        shell: bash
+        run: |
+          gh workflow run CI \
+            --ref "${{ steps.changelog.outputs.branch }}"

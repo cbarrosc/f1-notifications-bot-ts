@@ -1,15 +1,15 @@
 import {
+  buildSupabaseClient,
   OpenF1SessionProvider,
   SupabaseNotificationLogRepository,
   SupabaseSettingsRepository,
   SupabaseUserRepository,
   TelegramMessagingService,
-  buildSupabaseClient,
 } from './adapters.ts';
 import { TelegramBotUseCase, WakeUpUseCase } from './application.ts';
 import { getRuntimeConfig } from './env.ts';
 import { errorResponse, jsonResponse } from './responses.ts';
-import { RecentUpdateRegistry, SUBSCRIBE_CALLBACK_DATA, extractCommand } from './telegram.ts';
+import { extractCommand, RecentUpdateRegistry, SUBSCRIBE_CALLBACK_DATA } from './telegram.ts';
 
 const SUPPORTED_COMMANDS = new Set(['/start', '/subscribe', '/unsubscribe', '/set_country']);
 const recentUpdates = new RecentUpdateRegistry();
@@ -185,10 +185,9 @@ export async function handleWakeUp(request: Request): Promise<Response> {
 
     logger.info('Received wake-up request');
     const payload = await request.json();
-    const triggerType =
-      payload && typeof payload === 'object' && 'trigger_type' in payload
-        ? payload.trigger_type
-        : null;
+    const triggerType = payload && typeof payload === 'object' && 'trigger_type' in payload
+      ? payload.trigger_type
+      : null;
 
     if (typeof triggerType !== 'string' || triggerType.length === 0) {
       return errorResponse('Missing trigger_type.', 400);
@@ -210,10 +209,8 @@ export async function handleWakeUp(request: Request): Promise<Response> {
     const result = await useCase.execute(triggerType);
     logger.info('Completed wake-up trigger', {
       triggerType,
-      actionTaken:
-        typeof result.action_taken === 'string' ? result.action_taken : null,
-      messagesSent:
-        typeof result.messages_sent === 'number' ? result.messages_sent : null,
+      actionTaken: typeof result.action_taken === 'string' ? result.action_taken : null,
+      messagesSent: typeof result.messages_sent === 'number' ? result.messages_sent : null,
       durationMs: Date.now() - startedAt,
     });
     return jsonResponse(result);

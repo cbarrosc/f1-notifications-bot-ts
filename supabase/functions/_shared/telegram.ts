@@ -42,4 +42,3 @@ export class RecentUpdateRegistry {
     return true;
   }
 }
-

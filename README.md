@@ -157,6 +157,28 @@ With a single hosted Supabase environment, the recommended policy is:
 That means `develop` should not deploy to Supabase while the project still has
 only one hosted environment.
 
+## Scheduled wake-up dispatch
+
+The hosted `wake-up` function is triggered by the GitHub Actions workflow
+[`scheduled-triggers.yml`](.github/workflows/scheduled-triggers.yml).
+
+It uses the production function URL and bearer token from repository secrets:
+
+- `APP_SUPABASE_URL`
+- `SECRET_TOKEN`
+
+Default schedule:
+
+- every Monday at `09:00 UTC`: dispatch `weekly_digest`
+- every 15 minutes from Thursday to Monday (`4,5,6,0,1`): dispatch `session_reminder` and `post_race_briefing`
+
+This intentionally relies on the backend use cases to decide whether they are
+inside or outside the send window. That keeps the scheduler simple and makes it
+safer across time zones and unusual race weekends.
+
+You can also trigger it manually from GitHub Actions with `workflow_dispatch`
+and choose one trigger or `all`.
+
 ## Commit convention
 
 This repository enforces Conventional Commits through a Git `commit-msg` hook.

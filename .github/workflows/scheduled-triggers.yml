@@ -1,0 +1,91 @@
+name: F1 Bot Scheduled Triggers
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+    - cron: '*/15 * * * 4,5,6,0,1'
+  workflow_dispatch:
+    inputs:
+      trigger_type:
+        description: Trigger to dispatch manually
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - weekly_digest
+          - session_reminder
+          - post_race_briefing
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-triggers-${{ github.event.schedule || github.event.inputs.trigger_type || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch wake-up trigger
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve triggers to dispatch
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            selected="${{ github.event.inputs.trigger_type }}"
+
+            if [[ "$selected" == "all" ]]; then
+              printf 'triggers<<EOF\nweekly_digest\nsession_reminder\npost_race_briefing\nEOF\n' >> "$GITHUB_OUTPUT"
+            else
+              printf 'triggers<<EOF\n%s\nEOF\n' "$selected" >> "$GITHUB_OUTPUT"
+            fi
+
+            exit 0
+          fi
+
+          if [[ "${{ github.event.schedule }}" == "0 9 * * 1" ]]; then
+            printf 'triggers<<EOF\nweekly_digest\nEOF\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf 'triggers<<EOF\nsession_reminder\npost_race_briefing\nEOF\n' >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch wake-up request(s)
+        shell: bash
+        env:
+          SUPABASE_FUNCTION_URL: ${{ secrets.APP_SUPABASE_URL }}/functions/v1/wake-up
+          WAKE_UP_BEARER_TOKEN: ${{ secrets.SECRET_TOKEN }}
+          TRIGGERS: ${{ steps.resolve.outputs.triggers }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${SUPABASE_FUNCTION_URL}" || -z "${WAKE_UP_BEARER_TOKEN}" ]]; then
+            echo "Missing required secrets for scheduled wake-up dispatch." >&2
+            exit 1
+          fi
+
+          dispatch_trigger() {
+            local trigger_type="$1"
+
+            echo "Dispatching trigger: ${trigger_type}"
+
+            curl --fail-with-body --silent --show-error \
+              --request POST "${SUPABASE_FUNCTION_URL}" \
+              --header "content-type: application/json" \
+              --header "authorization: Bearer ${WAKE_UP_BEARER_TOKEN}" \
+              --data "{\"trigger_type\":\"${trigger_type}\"}"
+
+            echo
+          }
+
+          while IFS= read -r trigger_type; do
+            [[ -z "$trigger_type" ]] && continue
+            dispatch_trigger "$trigger_type"
+          done <<< "${TRIGGERS}"

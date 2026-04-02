@@ -95,7 +95,6 @@ What happens on every push to `main`:
 - the next semantic version is calculated
 - a Git tag is created
 - a GitHub Release is published
-- a separate workflow can open a PR to sync `CHANGELOG.md` from the published release notes
 
 Examples:
 
@@ -124,13 +123,10 @@ npm run release:preview
 ```
 
 GitHub Releases are the source of truth for generated release notes in production.
-To keep `main` protected, release automation does not push release commits back into the branch.
-Instead, a separate workflow can open a PR that syncs `CHANGELOG.md` from the published release notes.
+`CHANGELOG.md` is maintained locally from Conventional Commit messages through the Git `commit-msg` and `post-commit` hooks.
 
 The workflow is defined in
 [`release.yml`](.github/workflows/release.yml).
-The changelog sync workflow is defined in
-[`sync-changelog.yml`](.github/workflows/sync-changelog.yml).
 
 ## Branch strategy
 
@@ -165,6 +161,7 @@ only one hosted environment.
 
 This repository enforces Conventional Commits through a Git `commit-msg` hook.
 It also blocks local commits when Deno linting or formatting checks fail through a Git `pre-commit` hook.
+The local `commit-msg` and `post-commit` hooks update `CHANGELOG.md` from the final Conventional Commit message and fold it back into the same commit automatically.
 
 After cloning the repository, install dependencies once to activate Husky:
 

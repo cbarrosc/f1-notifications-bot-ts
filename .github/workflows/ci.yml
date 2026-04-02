@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  push:
+    branches:
+      - develop
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint Edge Functions
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run fmt:check

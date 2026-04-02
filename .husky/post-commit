@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+
+marker=".git/codex/changelog-amend"
+
+if [ ! -f "$marker" ]; then
+  exit 0
+fi
+
+rm -f "$marker"
+HUSKY=0 git commit --amend --no-edit --no-verify

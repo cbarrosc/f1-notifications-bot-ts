@@ -1,0 +1,10 @@
+.DS_Store
+.codex/
+.env
+.env.*
+!.env.example
+node_modules/
+.supabase/
+supabase/.temp/
+supabase/.branches/
+supabase/.env-local

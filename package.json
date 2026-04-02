@@ -1,0 +1,34 @@
+{
+  "name": "f1-notifications-bot-ts",
+  "private": true,
+  "version": "0.1.0",
+  "description": "TypeScript reimplementation of the F1 notifications bot for Supabase Edge Functions.",
+  "scripts": {
+    "prepare": "husky",
+    "fmt": "deno fmt --config supabase/functions/deno.json supabase/functions",
+    "fmt:check": "deno fmt --check --config supabase/functions/deno.json supabase/functions",
+    "lint": "deno lint --config supabase/functions/deno.json supabase/functions",
+    "lint:commit": "commitlint --edit",
+    "release": "semantic-release",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "functions:serve:webhook": "supabase functions serve telegram-webhook --env-file supabase/.env.local",
+    "functions:serve:wake-up": "supabase functions serve wake-up --env-file supabase/.env.local",
+    "functions:deploy:all": "supabase functions deploy --use-api",
+    "functions:deploy:webhook": "supabase functions deploy telegram-webhook",
+    "functions:deploy:wake-up": "supabase functions deploy wake-up"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^11.0.6",
+    "@semantic-release/npm": "^12.0.2",
+    "@semantic-release/release-notes-generator": "^14.1.0",
+    "husky": "^9.1.7",
+    "semantic-release": "^24.2.3",
+    "supabase": "^2.84.5"
+  }
+}

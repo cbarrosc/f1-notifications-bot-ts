@@ -1,0 +1,7 @@
+project_id = "f1-notifications-bot-ts"
+
+[functions.telegram-webhook]
+verify_jwt = false
+
+[functions.wake-up]
+verify_jwt = false

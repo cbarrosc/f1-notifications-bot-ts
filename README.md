@@ -92,7 +92,6 @@ What happens on every push to `main`:
 
 - commit messages are analyzed
 - the next semantic version is calculated
-- `package.json` and `CHANGELOG.md` are updated
 - a Git tag is created
 - a GitHub Release is published
 
@@ -122,7 +121,8 @@ If you want to preview the next release and changelog calculation locally from C
 npm run release:preview
 ```
 
-The committed `CHANGELOG.md` is still updated automatically only by the release flow on `main`.
+GitHub Releases are the source of truth for the generated changelog in production.
+This setup intentionally avoids pushing release commits back into protected branches.
 
 The workflow is defined in
 [`release.yml`](.github/workflows/release.yml).

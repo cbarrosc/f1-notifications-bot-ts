@@ -74,6 +74,7 @@ Run these commands from WSL to validate the Edge Functions source:
 
 ```bash
 npm run lint
+npm run test
 npm run fmt:check
 ```
 

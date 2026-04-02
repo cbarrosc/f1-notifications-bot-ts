@@ -159,6 +159,7 @@ only one hosted environment.
 ## Commit convention
 
 This repository enforces Conventional Commits through a Git `commit-msg` hook.
+It also blocks local commits when Deno linting or formatting checks fail through a Git `pre-commit` hook.
 
 After cloning the repository, install dependencies once to activate Husky:
 

@@ -110,6 +110,12 @@ Versioning rules:
 - `feat:` produces a minor release
 - `!` or a `BREAKING CHANGE:` footer produces a major release
 
+Bootstrap rule for this repository:
+
+- the first production-ready version should be tagged manually as `v0.1.0`
+- before that first tag exists, the release workflow intentionally skips `semantic-release`
+- after `v0.1.0` exists on `main`, versioning continues automatically from there
+
 The workflow is defined in
 [`release.yml`](.github/workflows/release.yml).
 

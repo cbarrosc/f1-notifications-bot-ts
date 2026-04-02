@@ -34,7 +34,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check for existing version tags
+        id: version_tags
+        shell: bash
+        run: |
+          if git tag --list 'v*' | grep -q .; then
+            echo "has_version_tags=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_version_tags=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip automatic release before bootstrap tag
+        if: steps.version_tags.outputs.has_version_tags != 'true'
+        run: |
+          echo "No version tags found."
+          echo "Bootstrap the project manually with tag v0.1.0 on the first production-ready commit in main."
+          echo "Automatic semantic-release will run on later pushes after that tag exists."
+
       - name: Create GitHub release and semantic version
+        if: steps.version_tags.outputs.has_version_tags == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release

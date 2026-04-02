@@ -1,0 +1,86 @@
+name: Deploy Supabase Functions
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-supabase-functions-main
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      SECRET_TOKEN: ${{ secrets.SECRET_TOKEN }}
+      OPENF1_BASE_URL: ${{ secrets.OPENF1_BASE_URL }}
+      DISABLE_WEEKLY_DIGEST_WINDOW: ${{ secrets.DISABLE_WEEKLY_DIGEST_WINDOW }}
+      DISABLE_SESSION_REMINDER_WINDOW: ${{ secrets.DISABLE_SESSION_REMINDER_WINDOW }}
+      DISABLE_POST_RACE_BRIEFING_WINDOW: ${{ secrets.DISABLE_POST_RACE_BRIEFING_WINDOW }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Lint Edge Functions
+        run: deno lint --config supabase/functions/deno.json supabase/functions
+
+      - name: Check formatting
+        run: deno fmt --check --config supabase/functions/deno.json supabase/functions
+
+      - name: Validate required CI secrets
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || (echo "Missing SUPABASE_ACCESS_TOKEN" && exit 1)
+          test -n "$SUPABASE_PROJECT_ID" || (echo "Missing SUPABASE_PROJECT_ID" && exit 1)
+          test -n "$TELEGRAM_TOKEN" || (echo "Missing TELEGRAM_TOKEN" && exit 1)
+          test -n "$SECRET_TOKEN" || (echo "Missing SECRET_TOKEN" && exit 1)
+
+      - name: Sync runtime secrets to Supabase
+        shell: bash
+        run: |
+          secrets=(
+            "TELEGRAM_TOKEN=$TELEGRAM_TOKEN"
+            "SECRET_TOKEN=$SECRET_TOKEN"
+          )
+
+          if [[ -n "$OPENF1_BASE_URL" ]]; then
+            secrets+=("OPENF1_BASE_URL=$OPENF1_BASE_URL")
+          fi
+
+          if [[ -n "$DISABLE_WEEKLY_DIGEST_WINDOW" ]]; then
+            secrets+=("DISABLE_WEEKLY_DIGEST_WINDOW=$DISABLE_WEEKLY_DIGEST_WINDOW")
+          fi
+
+          if [[ -n "$DISABLE_SESSION_REMINDER_WINDOW" ]]; then
+            secrets+=("DISABLE_SESSION_REMINDER_WINDOW=$DISABLE_SESSION_REMINDER_WINDOW")
+          fi
+
+          if [[ -n "$DISABLE_POST_RACE_BRIEFING_WINDOW" ]]; then
+            secrets+=("DISABLE_POST_RACE_BRIEFING_WINDOW=$DISABLE_POST_RACE_BRIEFING_WINDOW")
+          fi
+
+          supabase secrets set "${secrets[@]}" --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Deploy Edge Functions
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID" --use-api

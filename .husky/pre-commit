@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+
+if [ -d "$HOME/.deno/bin" ]; then
+  PATH="$HOME/.deno/bin:$PATH"
+fi
+
+npm run lint && npm run fmt:check

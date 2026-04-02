@@ -58,4 +58,5 @@ jobs:
         if: steps.version_tags.outputs.has_version_tags == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HUSKY: 0
         run: npm run release

@@ -116,6 +116,14 @@ Bootstrap rule for this repository:
 - before that first tag exists, the release workflow intentionally skips `semantic-release`
 - after `v0.1.0` exists on `main`, versioning continues automatically from there
 
+If you want to preview the next release and changelog calculation locally from Conventional Commits before a release:
+
+```bash
+npm run release:preview
+```
+
+The committed `CHANGELOG.md` is still updated automatically only by the release flow on `main`.
+
 The workflow is defined in
 [`release.yml`](.github/workflows/release.yml).
 
@@ -209,8 +217,8 @@ curl -i \
       "chat": { "id": 123456 },
       "from": {
         "id": 123456,
-        "first_name": "Camilo",
-        "username": "camilo"
+        "first_name": "John",
+        "username": "john_doe"
       }
     }
   }'
@@ -229,8 +237,8 @@ curl -i \
       "data": "subscribe_cta",
       "from": {
         "id": 123456,
-        "first_name": "Camilo",
-        "username": "camilo"
+        "first_name": "John",
+        "username": "john_doe"
       },
       "message": {
         "message_id": 11,
@@ -253,8 +261,8 @@ curl -i \
       "data": "tz_cl",
       "from": {
         "id": 123456,
-        "first_name": "Camilo",
-        "username": "camilo"
+        "first_name": "John",
+        "username": "john_doe"
       },
       "message": {
         "message_id": 12,

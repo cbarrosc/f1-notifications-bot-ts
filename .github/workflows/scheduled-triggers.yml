@@ -2,7 +2,7 @@ name: F1 Bot Scheduled Triggers
 
 on:
   schedule:
-    - cron: '0 9 * * 1'
+    - cron: '0 16 * * 1'
     - cron: '*/15 * * * 4,5,6,0,1'
   workflow_dispatch:
     inputs:

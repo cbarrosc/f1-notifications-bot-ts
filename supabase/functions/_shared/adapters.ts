@@ -71,8 +71,8 @@ type OpenF1DriverRow = {
 
 export function buildSupabaseClient(): SupabaseClient {
   const supabaseUrl = Deno.env.get('APP_SUPABASE_URL') ?? Deno.env.get('SUPABASE_URL');
-  const serviceRoleKey =
-    Deno.env.get('APP_SUPABASE_SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const serviceRoleKey = Deno.env.get('APP_SUPABASE_SERVICE_ROLE_KEY') ??
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
   if (!supabaseUrl) {
     throw new Error('Missing APP_SUPABASE_URL or SUPABASE_URL.');
@@ -371,7 +371,10 @@ export class TelegramMessagingService implements MessagingService {
 
 export class OpenF1SessionProvider implements SessionProvider {
   private readonly meetingDetailsCache = new Map<string, MeetingDetails>();
-  private readonly driversBySessionCache = new Map<number, Map<number, { name: string | null; team: string | null }>>();
+  private readonly driversBySessionCache = new Map<
+    number,
+    Map<number, { name: string | null; team: string | null }>
+  >();
 
   constructor(
     private readonly options: {
@@ -484,7 +487,10 @@ export class OpenF1SessionProvider implements SessionProvider {
     return sessions;
   }
 
-  private async getMeetingDetails(year: number, meetingKey: number | null): Promise<MeetingDetails> {
+  private async getMeetingDetails(
+    year: number,
+    meetingKey: number | null,
+  ): Promise<MeetingDetails> {
     if (meetingKey === null) {
       return {
         name: null,

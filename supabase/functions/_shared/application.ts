@@ -181,7 +181,10 @@ export class TelegramBotUseCase {
         callbackData: input.callbackData,
         userId: input.userId,
       });
-      await this.messagingService.answerCallbackQuery(input.callbackQueryId, 'Opcion no soportada.');
+      await this.messagingService.answerCallbackQuery(
+        input.callbackQueryId,
+        'Opcion no soportada.',
+      );
       return;
     }
 
@@ -229,13 +232,12 @@ export class TelegramBotUseCase {
       username: input.username ?? null,
     });
     await this.messagingService.answerCallbackQuery(input.callbackQueryId, '');
-    const text =
-      existingUser.status === 'active'
-        ? await this.buildAlreadyRegisteredText(input.firstName, existingUser, [
-            'already_registered_msg',
-            'already_registered',
-          ])
-        : await this.activateUserAndBuildSubscribeText(input.userId, input.firstName);
+    const text = existingUser.status === 'active'
+      ? await this.buildAlreadyRegisteredText(input.firstName, existingUser, [
+        'already_registered_msg',
+        'already_registered',
+      ])
+      : await this.activateUserAndBuildSubscribeText(input.userId, input.firstName);
 
     try {
       await this.messagingService.editMessage(input.chatId, input.messageId, text);
@@ -266,7 +268,10 @@ export class TelegramBotUseCase {
     return user;
   }
 
-  private async activateUserAndBuildSubscribeText(userId: number, firstName: string): Promise<string> {
+  private async activateUserAndBuildSubscribeText(
+    userId: number,
+    firstName: string,
+  ): Promise<string> {
     await this.userRepository.updateUserStatus(userId, 'active');
     logger.info('Updated user subscription status', {
       userId,
@@ -620,7 +625,12 @@ function renderWeeklySummaryMessage(
 
 function renderSessionReminderMessage(
   template: string,
-  session: { location: string | null; dateStart: Date; sessionType: string | null; sessionName: string },
+  session: {
+    location: string | null;
+    dateStart: Date;
+    sessionType: string | null;
+    sessionName: string;
+  },
   firstName: string,
   timezone: string,
 ): string {

@@ -169,7 +169,7 @@ It uses the production function URL and bearer token from repository secrets:
 
 Default schedule:
 
-- every Monday at `09:00 UTC`: dispatch `weekly_digest`
+- every Monday at `16:00 UTC`: dispatch `weekly_digest`
 - every 15 minutes from Thursday to Monday (`4,5,6,0,1`): dispatch `session_reminder` and `post_race_briefing`
 
 This intentionally relies on the backend use cases to decide whether they are

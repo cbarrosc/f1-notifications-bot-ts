@@ -94,6 +94,7 @@ What happens on every push to `main`:
 - the next semantic version is calculated
 - a Git tag is created
 - a GitHub Release is published
+- a separate workflow can open a PR to sync `CHANGELOG.md` from the published release notes
 
 Examples:
 
@@ -121,11 +122,14 @@ If you want to preview the next release and changelog calculation locally from C
 npm run release:preview
 ```
 
-GitHub Releases are the source of truth for the generated changelog in production.
-This setup intentionally avoids pushing release commits back into protected branches.
+GitHub Releases are the source of truth for generated release notes in production.
+To keep `main` protected, release automation does not push release commits back into the branch.
+Instead, a separate workflow can open a PR that syncs `CHANGELOG.md` from the published release notes.
 
 The workflow is defined in
 [`release.yml`](.github/workflows/release.yml).
+The changelog sync workflow is defined in
+[`sync-changelog.yml`](.github/workflows/sync-changelog.yml).
 
 ## Branch strategy
 

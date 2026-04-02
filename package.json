@@ -5,6 +5,7 @@
   "description": "TypeScript reimplementation of the F1 notifications bot for Supabase Edge Functions.",
   "scripts": {
     "prepare": "husky",
+    "changelog:update": "node ./scripts/update-changelog-from-commit.mjs",
     "release:preview": "semantic-release --dry-run --no-ci",
     "fmt": "deno fmt --config supabase/functions/deno.json supabase/functions",
     "fmt:check": "deno fmt --check --config supabase/functions/deno.json supabase/functions",

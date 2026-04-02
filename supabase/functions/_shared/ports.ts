@@ -18,6 +18,11 @@ export interface SettingsRepository {
   getBotSettings(): Promise<BotSettings>;
 }
 
+export interface NotificationLogRepository {
+  markAsSent(userId: number, notificationKey: string): Promise<boolean>;
+  unmarkAsSent(userId: number, notificationKey: string): Promise<void>;
+}
+
 export interface MessagingService {
   sendMessage(chatId: number, text: string): Promise<void>;
   sendCountryOptions(

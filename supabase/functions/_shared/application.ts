@@ -2,6 +2,7 @@ import { buildNewUser } from './domain.ts';
 import type {
   CountryOption,
   MessagingService,
+  NotificationLogRepository,
   SessionProvider,
   SettingsRepository,
   UserRepository,
@@ -62,10 +63,10 @@ export class TelegramBotUseCase {
       });
       const existingUser = await this.userRepository.getUser(input.userId);
       if (existingUser) {
-        const template = await this.settingsRepository.getValue('already_registered');
-        const text = template
-          .replace('{name}', input.firstName)
-          .replace('{tz}', existingUser.timezone ?? 'UTC');
+        const text = await this.buildAlreadyRegisteredText(input.firstName, existingUser, [
+          'already_registered',
+          'already_registered_msg',
+        ]);
         await this.messagingService.sendMessage(input.userId, text);
         logger.info('Completed Telegram command for existing user', {
           command: input.command,
@@ -96,13 +97,16 @@ export class TelegramBotUseCase {
         command: input.command,
         userId: input.userId,
       });
-      const existingUser = await this.userRepository.getUser(input.userId);
+      const existingUser = await this.ensureUserExists({
+        userId: input.userId,
+        firstName: input.firstName,
+        username: input.username ?? null,
+      });
       if (existingUser?.status === 'active') {
-        const template = await this.settingsRepository.getValue('already_registered_msg');
-        const text = template
-          .replace('{name}', input.firstName)
-          .replace('{tz}', existingUser.timezone ?? 'UTC')
-          .replace('{flag}', formatTimezoneFlag(existingUser.timezone ?? 'UTC'));
+        const text = await this.buildAlreadyRegisteredText(input.firstName, existingUser, [
+          'already_registered_msg',
+          'already_registered',
+        ]);
         await this.messagingService.sendMessage(input.userId, text);
         logger.info('Skipped subscribe because user is already active', {
           userId: input.userId,
@@ -110,16 +114,8 @@ export class TelegramBotUseCase {
         return;
       }
 
-      await this.userRepository.updateUserStatus(input.userId, 'active');
-      const text = (await this.settingsRepository.getValue('subscribe_ok')).replace(
-        '{name}',
-        input.firstName,
-      );
+      const text = await this.activateUserAndBuildSubscribeText(input.userId, input.firstName);
       await this.messagingService.sendMessage(input.userId, text);
-      logger.info('Updated user subscription status', {
-        userId: input.userId,
-        status: 'active',
-      });
       return;
     }
 
@@ -127,6 +123,11 @@ export class TelegramBotUseCase {
       logger.info('Processing Telegram command', {
         command: input.command,
         userId: input.userId,
+      });
+      await this.ensureUserExists({
+        userId: input.userId,
+        firstName: input.firstName,
+        username: input.username ?? null,
       });
       await this.userRepository.updateUserStatus(input.userId, 'inactive');
       const text = await this.settingsRepository.getValue('unsubscribe_ok');
@@ -143,9 +144,14 @@ export class TelegramBotUseCase {
         command: input.command,
         userId: input.userId,
       });
+      await this.ensureUserExists({
+        userId: input.userId,
+        firstName: input.firstName,
+        username: input.username ?? null,
+      });
       await this.messagingService.sendCountryOptions(
         input.userId,
-        'Elige tu pais para configurar la zona horaria:',
+        await this.settingsRepository.getValue('set_country_msg'),
         COUNTRY_OPTIONS,
       );
       logger.info('Sent country selector', {
@@ -165,6 +171,7 @@ export class TelegramBotUseCase {
     callbackData: string;
     userId: number;
     firstName: string;
+    username?: string | null;
     chatId: number;
     messageId: number;
   }): Promise<void> {
@@ -182,6 +189,11 @@ export class TelegramBotUseCase {
       callbackData: input.callbackData,
       timezone,
       userId: input.userId,
+    });
+    await this.ensureUserExists({
+      userId: input.userId,
+      firstName: input.firstName,
+      username: input.username ?? null,
     });
     await this.userRepository.updateUserTimezone(input.userId, timezone);
     await this.messagingService.answerCallbackQuery(input.callbackQueryId, '');
@@ -204,18 +216,26 @@ export class TelegramBotUseCase {
     callbackQueryId: string;
     userId: number;
     firstName: string;
+    username?: string | null;
     chatId: number;
     messageId: number;
   }): Promise<void> {
     logger.info('Processing subscribe callback', {
       userId: input.userId,
     });
-    await this.userRepository.updateUserStatus(input.userId, 'active');
+    const existingUser = await this.ensureUserExists({
+      userId: input.userId,
+      firstName: input.firstName,
+      username: input.username ?? null,
+    });
     await this.messagingService.answerCallbackQuery(input.callbackQueryId, '');
-    const text = (await this.settingsRepository.getValue('subscribe_ok')).replace(
-      '{name}',
-      input.firstName,
-    );
+    const text =
+      existingUser.status === 'active'
+        ? await this.buildAlreadyRegisteredText(input.firstName, existingUser, [
+            'already_registered_msg',
+            'already_registered',
+          ])
+        : await this.activateUserAndBuildSubscribeText(input.userId, input.firstName);
 
     try {
       await this.messagingService.editMessage(input.chatId, input.messageId, text);
@@ -227,6 +247,61 @@ export class TelegramBotUseCase {
       await this.messagingService.sendMessage(input.userId, text);
     }
   }
+
+  private async ensureUserExists(input: {
+    userId: number;
+    firstName: string;
+    username?: string | null;
+  }) {
+    const existingUser = await this.userRepository.getUser(input.userId);
+    if (existingUser) {
+      return existingUser;
+    }
+
+    const user = buildNewUser(input);
+    await this.userRepository.saveUser(user);
+    logger.info('Created missing user before follow-up action', {
+      userId: input.userId,
+    });
+    return user;
+  }
+
+  private async activateUserAndBuildSubscribeText(userId: number, firstName: string): Promise<string> {
+    await this.userRepository.updateUserStatus(userId, 'active');
+    logger.info('Updated user subscription status', {
+      userId,
+      status: 'active',
+    });
+    return (await this.settingsRepository.getValue('subscribe_ok')).replace('{name}', firstName);
+  }
+
+  private async buildAlreadyRegisteredText(
+    firstName: string,
+    user: { timezone: string | null },
+    preferredKeys: string[],
+  ): Promise<string> {
+    let template: string | null = null;
+    let lastError: Error | null = null;
+
+    for (const key of preferredKeys) {
+      try {
+        template = await this.settingsRepository.getValue(key);
+        break;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown bot setting error.');
+      }
+    }
+
+    if (template === null) {
+      throw lastError ?? new Error('Missing already-registered message template.');
+    }
+
+    const timezone = user.timezone ?? 'UTC';
+    return template
+      .replace('{name}', firstName)
+      .replace('{tz}', timezone)
+      .replace('{flag}', formatTimezoneFlag(timezone));
+  }
 }
 
 export class WakeUpUseCase {
@@ -235,6 +310,7 @@ export class WakeUpUseCase {
     private readonly settingsRepository: SettingsRepository,
     private readonly userRepository: UserRepository,
     private readonly messagingService: MessagingService,
+    private readonly notificationLogRepository: NotificationLogRepository,
     private readonly options: {
       enforceWeeklyDigestWindow: boolean;
       enforceSessionReminderWindow: boolean;
@@ -298,17 +374,33 @@ export class WakeUpUseCase {
     }
 
     const template = await this.settingsRepository.getValue('weekly_summary_msg');
+    const notificationKey = buildWeeklyDigestNotificationKey(nextSession);
+    let messagesSent = 0;
     for (const user of activeUsers) {
+      const shouldSend = await this.notificationLogRepository.markAsSent(
+        user.userId,
+        notificationKey,
+      );
+      if (!shouldSend) {
+        continue;
+      }
+
       const timezone = user.timezone ?? 'UTC';
       const message = renderWeeklySummaryMessage(template, nextSession, user.firstName, timezone);
-      await this.messagingService.sendMessage(user.userId, message);
+      try {
+        await this.messagingService.sendMessage(user.userId, message);
+      } catch (error) {
+        await this.notificationLogRepository.unmarkAsSent(user.userId, notificationKey);
+        throw error;
+      }
+      messagesSent += 1;
     }
 
-    logger.info('Weekly digest sent', {
-      messagesSent: activeUsers.length,
+    logger.info('Completed weekly digest dispatch', {
+      messagesSent,
     });
-    response.action_taken = 'weekly_digest_sent';
-    response.messages_sent = activeUsers.length;
+    response.action_taken = messagesSent > 0 ? 'weekly_digest_sent' : 'already_sent';
+    response.messages_sent = messagesSent;
     return response;
   }
 
@@ -342,6 +434,13 @@ export class WakeUpUseCase {
       return response;
     }
 
+    if (nextSession.dateStart.getTime() <= now.getTime()) {
+      logger.info('Session reminder skipped because the session has already started');
+      response.action_taken = 'session_already_started';
+      response.messages_sent = 0;
+      return response;
+    }
+
     const activeUsers = await this.userRepository.listActiveUsers();
     if (activeUsers.length === 0) {
       logger.info('Session reminder skipped because there are no active users');
@@ -351,18 +450,34 @@ export class WakeUpUseCase {
     }
 
     const template = await this.settingsRepository.getValue('session_reminder_msg');
+    const notificationKey = buildSessionReminderNotificationKey(nextSession);
+    let messagesSent = 0;
     for (const user of activeUsers) {
+      const shouldSend = await this.notificationLogRepository.markAsSent(
+        user.userId,
+        notificationKey,
+      );
+      if (!shouldSend) {
+        continue;
+      }
+
       const timezone = user.timezone ?? 'UTC';
       const message = renderSessionReminderMessage(template, nextSession, user.firstName, timezone);
-      await this.messagingService.sendMessage(user.userId, message);
+      try {
+        await this.messagingService.sendMessage(user.userId, message);
+      } catch (error) {
+        await this.notificationLogRepository.unmarkAsSent(user.userId, notificationKey);
+        throw error;
+      }
+      messagesSent += 1;
     }
 
-    logger.info('Session reminder sent', {
-      messagesSent: activeUsers.length,
+    logger.info('Completed session reminder dispatch', {
+      messagesSent,
       alertLeadTime,
     });
-    response.action_taken = 'session_reminder_sent';
-    response.messages_sent = activeUsers.length;
+    response.action_taken = messagesSent > 0 ? 'session_reminder_sent' : 'already_sent';
+    response.messages_sent = messagesSent;
     return response;
   }
 
@@ -408,17 +523,33 @@ export class WakeUpUseCase {
     }
 
     const template = await this.settingsRepository.getValue('post_race_briefing_msg');
+    const notificationKey = buildPostRaceBriefingNotificationKey(briefing.completedRace);
+    let messagesSent = 0;
     for (const user of activeUsers) {
+      const shouldSend = await this.notificationLogRepository.markAsSent(
+        user.userId,
+        notificationKey,
+      );
+      if (!shouldSend) {
+        continue;
+      }
+
       const message = renderPostRaceBriefingMessage(template, briefing, user.firstName);
-      await this.messagingService.sendMessage(user.userId, message);
+      try {
+        await this.messagingService.sendMessage(user.userId, message);
+      } catch (error) {
+        await this.notificationLogRepository.unmarkAsSent(user.userId, notificationKey);
+        throw error;
+      }
+      messagesSent += 1;
     }
 
-    logger.info('Post-race briefing sent', {
-      messagesSent: activeUsers.length,
+    logger.info('Completed post-race briefing dispatch', {
+      messagesSent,
       postRaceDelta,
     });
-    response.action_taken = 'post_race_briefing_sent';
-    response.messages_sent = activeUsers.length;
+    response.action_taken = messagesSent > 0 ? 'post_race_briefing_sent' : 'already_sent';
+    response.messages_sent = messagesSent;
     return response;
   }
 
@@ -564,6 +695,27 @@ function formatUserDatetime(value: Date, timezone: string): string {
 
 function formatTimezoneFlag(timezone: string): string {
   return TIMEZONE_FLAG_BY_NAME[timezone] ?? '🌐';
+}
+
+function buildWeeklyDigestNotificationKey(session: {
+  sessionKey: number | null;
+  dateStart: Date;
+}): string {
+  return `weekly_digest:${session.sessionKey ?? session.dateStart.toISOString()}`;
+}
+
+function buildSessionReminderNotificationKey(session: {
+  sessionKey: number | null;
+  dateStart: Date;
+}): string {
+  return `session_reminder:${session.sessionKey ?? session.dateStart.toISOString()}`;
+}
+
+function buildPostRaceBriefingNotificationKey(session: {
+  sessionKey: number | null;
+  dateStart: Date;
+}): string {
+  return `post_race_briefing:${session.sessionKey ?? session.dateStart.toISOString()}`;
 }
 
 function isValidTimeZone(timezone: string): boolean {

@@ -9,7 +9,14 @@ import type {
   User,
   UserStatus,
 } from './domain.ts';
-import type { CountryOption, MessagingService, SessionProvider, SettingsRepository, UserRepository } from './ports.ts';
+import type {
+  CountryOption,
+  MessagingService,
+  NotificationLogRepository,
+  SessionProvider,
+  SettingsRepository,
+  UserRepository,
+} from './ports.ts';
 
 const ALLOWED_SESSION_NAMES = new Set([
   'Practice 1',
@@ -32,6 +39,10 @@ type UserRow = {
 
 type SettingRow = {
   value?: unknown;
+};
+
+type PostgresError = Error & {
+  code?: string;
 };
 
 type OpenF1SessionRow = {
@@ -223,6 +234,53 @@ export class SupabaseSettingsRepository implements SettingsRepository {
     }
 
     return null;
+  }
+}
+
+export class SupabaseNotificationLogRepository implements NotificationLogRepository {
+  constructor(private readonly client: SupabaseClient) {}
+
+  async markAsSent(userId: number, notificationKey: string): Promise<boolean> {
+    logger.info('Recording notification delivery in Supabase', {
+      userId,
+      notificationKey,
+    });
+    const { error } = await this.client.from('notification_deliveries').insert({
+      user_id: userId,
+      notification_key: notificationKey,
+      sent_at: new Date().toISOString(),
+    });
+
+    if (!error) {
+      return true;
+    }
+
+    const postgresError = error as PostgresError;
+    if (postgresError.code === '23505') {
+      logger.info('Skipping duplicate notification delivery', {
+        userId,
+        notificationKey,
+      });
+      return false;
+    }
+
+    throw error;
+  }
+
+  async unmarkAsSent(userId: number, notificationKey: string): Promise<void> {
+    logger.warn('Removing notification delivery mark after downstream failure', {
+      userId,
+      notificationKey,
+    });
+    const { error } = await this.client
+      .from('notification_deliveries')
+      .delete()
+      .eq('user_id', userId)
+      .eq('notification_key', notificationKey);
+
+    if (error) {
+      throw error;
+    }
   }
 }
 

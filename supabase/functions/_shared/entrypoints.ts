@@ -1,5 +1,6 @@
 import {
   OpenF1SessionProvider,
+  SupabaseNotificationLogRepository,
   SupabaseSettingsRepository,
   SupabaseUserRepository,
   TelegramMessagingService,
@@ -19,6 +20,7 @@ function createRuntimeDependencies() {
   const supabaseClient = buildSupabaseClient();
   const userRepository = new SupabaseUserRepository(supabaseClient);
   const settingsRepository = new SupabaseSettingsRepository(supabaseClient);
+  const notificationLogRepository = new SupabaseNotificationLogRepository(supabaseClient);
   const messagingService = new TelegramMessagingService(config.telegramToken);
   const sessionProvider = new OpenF1SessionProvider({
     baseUrl: config.openF1BaseUrl,
@@ -29,6 +31,7 @@ function createRuntimeDependencies() {
     config,
     userRepository,
     settingsRepository,
+    notificationLogRepository,
     messagingService,
     sessionProvider,
   };
@@ -111,6 +114,7 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
           callbackQueryId: callbackQuery.id,
           userId: user.id,
           firstName: user.first_name,
+          username: typeof user.username === 'string' ? user.username : null,
           chatId: chat.id,
           messageId: callbackMessage.message_id,
         });
@@ -128,6 +132,7 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
           callbackData,
           userId: user.id,
           firstName: user.first_name,
+          username: typeof user.username === 'string' ? user.username : null,
           chatId: chat.id,
           messageId: callbackMessage.message_id,
         });
@@ -169,6 +174,7 @@ export async function handleWakeUp(request: Request): Promise<Response> {
       sessionProvider,
       settingsRepository,
       userRepository,
+      notificationLogRepository,
       messagingService,
     } = createRuntimeDependencies();
     const authorization = request.headers.get('authorization');
@@ -194,6 +200,7 @@ export async function handleWakeUp(request: Request): Promise<Response> {
       settingsRepository,
       userRepository,
       messagingService,
+      notificationLogRepository,
       {
         enforceWeeklyDigestWindow: !config.disableWeeklyDigestWindow,
         enforceSessionReminderWindow: !config.disableSessionReminderWindow,

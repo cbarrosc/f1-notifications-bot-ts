@@ -123,7 +123,7 @@ npm run release:preview
 ```
 
 GitHub Releases are the source of truth for generated release notes in production.
-`CHANGELOG.md` is maintained locally from Conventional Commit messages through the Git `commit-msg` and `post-commit` hooks.
+`CHANGELOG.md` is a lightweight pointer to GitHub Releases, not an auto-generated commit-by-commit changelog.
 
 The workflow is defined in
 [`release.yml`](.github/workflows/release.yml).
@@ -183,7 +183,6 @@ and choose one trigger or `all`.
 
 This repository enforces Conventional Commits through a Git `commit-msg` hook.
 It also blocks local commits when Deno linting or formatting checks fail through a Git `pre-commit` hook.
-The local `commit-msg` and `post-commit` hooks update `CHANGELOG.md` from the final Conventional Commit message and fold it back into the same commit automatically.
 
 After cloning the repository, install dependencies once to activate Husky:
 

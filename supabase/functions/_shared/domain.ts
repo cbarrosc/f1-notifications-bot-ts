@@ -35,6 +35,7 @@ export interface PostRaceBriefing {
 export interface BotSettings {
   alertLeadTimeMinutes: number | null;
   postRaceDeltaMinutes: number | null;
+  postRaceMaxWindowMinutes: number | null;
 }
 
 export interface MeetingDetails {

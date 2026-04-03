@@ -506,13 +506,25 @@ export class WakeUpUseCase {
     response.days_left = briefing.daysLeft;
 
     const postRaceDelta = await this.getPostRaceDelta();
+    const postRaceMaxWindow = await this.getOptionalPostRaceMaxWindow();
     response.post_race_delta_minutes = postRaceDelta;
+    response.post_race_max_window_minutes = postRaceMaxWindow;
+    const elapsedSinceRaceEndMs = briefing.completedRace.dateEnd === null
+      ? null
+      : now.getTime() - briefing.completedRace.dateEnd.getTime();
+
     if (
       briefing.completedRace.dateEnd === null ||
-      now.getTime() - briefing.completedRace.dateEnd.getTime() < postRaceDelta * 60_000
+      elapsedSinceRaceEndMs === null ||
+      elapsedSinceRaceEndMs < postRaceDelta * 60_000 ||
+      (
+        postRaceMaxWindow !== null &&
+        elapsedSinceRaceEndMs > postRaceMaxWindow * 60_000
+      )
     ) {
       logger.info('Post-race briefing skipped because it is outside the configured time window', {
         postRaceDelta,
+        postRaceMaxWindow,
       });
       response.action_taken = 'outside_post_race_window';
       response.messages_sent = 0;
@@ -584,6 +596,25 @@ export class WakeUpUseCase {
     }
 
     return delta;
+  }
+
+  private async getOptionalPostRaceMaxWindow(): Promise<number | null> {
+    const rawValue = await this.settingsRepository.getBotSettings();
+    const maxWindow = rawValue.postRaceMaxWindowMinutes;
+
+    if (maxWindow === null) {
+      return null;
+    }
+
+    if (Number.isNaN(maxWindow)) {
+      throw new Error('Invalid bot setting value for key: post_race_max_window');
+    }
+
+    if (maxWindow < 0) {
+      throw new Error('post_race_max_window must be zero or greater');
+    }
+
+    return maxWindow;
   }
 }
 

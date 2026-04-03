@@ -69,6 +69,9 @@ class InMemorySettingsRepository implements SettingsRepository {
     return Promise.resolve({
       alertLeadTimeMinutes: Number(this.values.alert_lead_time ?? 0),
       postRaceDeltaMinutes: Number(this.values.post_race_delta ?? 0),
+      postRaceMaxWindowMinutes: this.values.post_race_max_window === undefined
+        ? null
+        : Number(this.values.post_race_max_window),
     });
   }
 }
@@ -469,5 +472,124 @@ Deno.test('session_reminder renders the correct local time for every supported t
     if (actual !== expected) {
       throw new Error(`Unexpected session reminder for ${testCase.timezone}: ${actual}`);
     }
+  }
+});
+
+Deno.test('post_race_briefing skips sending when the completed race is past the maximum window', async () => {
+  const userRepository = new InMemoryUserRepository([
+    {
+      userId: 1,
+      firstName: 'John',
+      username: 'john_doe',
+      status: 'active',
+      timezone: 'America/Argentina/Buenos_Aires',
+    },
+  ]);
+  const settingsRepository = new InMemorySettingsRepository({
+    post_race_briefing_msg: 'Unused in this test',
+    alert_lead_time: '15',
+    post_race_delta: '45',
+    post_race_max_window: '180',
+  });
+  const messagingService = new RecordingMessagingService();
+  const notificationLogRepository = new InMemoryNotificationLogRepository();
+  const postRaceBriefing: PostRaceBriefing = {
+    completedRace: buildSession({
+      dateStart: new Date('2026-03-29T05:00:00Z'),
+      dateEnd: new Date('2026-03-29T07:00:00Z'),
+      sessionName: 'Race',
+      sessionType: 'Race',
+      location: 'Suzuka',
+      meetingName: 'Japanese Grand Prix',
+    }),
+    podium: [
+      { position: 1, driverName: 'Driver 1', teamName: 'Team 1' },
+      { position: 2, driverName: 'Driver 2', teamName: 'Team 2' },
+      { position: 3, driverName: 'Driver 3', teamName: 'Team 3' },
+    ],
+    nextGrandPrix: 'Bahrain Grand Prix',
+    daysLeft: 10,
+  };
+  const sessionProvider = new StubSessionProvider('OpenF1', null, null, postRaceBriefing);
+  const useCase = new WakeUpUseCase(
+    sessionProvider,
+    settingsRepository,
+    userRepository,
+    messagingService,
+    notificationLogRepository,
+    {
+      enforceWeeklyDigestWindow: true,
+      enforceSessionReminderWindow: true,
+    },
+  );
+
+  const result = await useCase.execute('post_race_briefing', new Date('2026-03-29T11:00:00Z'));
+
+  if (result.action_taken !== 'outside_post_race_window') {
+    throw new Error(`Unexpected action: ${result.action_taken}`);
+  }
+
+  if (result.messages_sent !== 0) {
+    throw new Error(`Expected zero messages, received ${result.messages_sent}`);
+  }
+});
+
+Deno.test('post_race_briefing sends inside the configured maximum window', async () => {
+  const userRepository = new InMemoryUserRepository([
+    {
+      userId: 1,
+      firstName: 'John',
+      username: 'john_doe',
+      status: 'active',
+      timezone: 'America/Argentina/Buenos_Aires',
+    },
+  ]);
+  const settingsRepository = new InMemorySettingsRepository({
+    post_race_briefing_msg:
+      '{name}|{circuit}|{P1_driver}|{P2_driver}|{P3_driver}|{next_gp}|{days_left}',
+    alert_lead_time: '15',
+    post_race_delta: '45',
+    post_race_max_window: '180',
+  });
+  const messagingService = new RecordingMessagingService();
+  const notificationLogRepository = new InMemoryNotificationLogRepository();
+  const postRaceBriefing: PostRaceBriefing = {
+    completedRace: buildSession({
+      dateStart: new Date('2026-03-29T05:00:00Z'),
+      dateEnd: new Date('2026-03-29T07:00:00Z'),
+      sessionName: 'Race',
+      sessionType: 'Race',
+      location: 'Suzuka',
+      meetingName: 'Japanese Grand Prix',
+    }),
+    podium: [
+      { position: 1, driverName: 'Driver 1', teamName: 'Team 1' },
+      { position: 2, driverName: 'Driver 2', teamName: 'Team 2' },
+      { position: 3, driverName: 'Driver 3', teamName: 'Team 3' },
+    ],
+    nextGrandPrix: 'Bahrain Grand Prix',
+    daysLeft: 10,
+  };
+  const sessionProvider = new StubSessionProvider('OpenF1', null, null, postRaceBriefing);
+  const useCase = new WakeUpUseCase(
+    sessionProvider,
+    settingsRepository,
+    userRepository,
+    messagingService,
+    notificationLogRepository,
+    {
+      enforceWeeklyDigestWindow: true,
+      enforceSessionReminderWindow: true,
+    },
+  );
+
+  const result = await useCase.execute('post_race_briefing', new Date('2026-03-29T08:00:00Z'));
+
+  if (result.action_taken !== 'post_race_briefing_sent') {
+    throw new Error(`Unexpected action: ${result.action_taken}`);
+  }
+
+  if (result.messages_sent !== 1) {
+    throw new Error(`Expected one message, received ${result.messages_sent}`);
   }
 });

@@ -196,14 +196,16 @@ export class SupabaseSettingsRepository implements SettingsRepository {
   }
 
   async getBotSettings(): Promise<BotSettings> {
-    const [alertLeadTime, postRaceDelta] = await Promise.all([
+    const [alertLeadTime, postRaceDelta, postRaceMaxWindow] = await Promise.all([
       this.getOptionalNumericValue('alert_lead_time'),
       this.getOptionalNumericValue('post_race_delta'),
+      this.getOptionalNumericValue('post_race_max_window'),
     ]);
 
     return {
       alertLeadTimeMinutes: alertLeadTime,
       postRaceDeltaMinutes: postRaceDelta,
+      postRaceMaxWindowMinutes: postRaceMaxWindow,
     };
   }
 

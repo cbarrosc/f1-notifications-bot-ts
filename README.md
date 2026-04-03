@@ -176,6 +176,11 @@ This intentionally relies on the backend use cases to decide whether they are
 inside or outside the send window. That keeps the scheduler simple and makes it
 safer across time zones and unusual race weekends.
 
+`post_race_briefing` supports:
+
+- `post_race_delta`: minimum minutes after the race end before sending
+- `post_race_max_window`: optional maximum minutes after the race end during which sending is still allowed
+
 You can also trigger it manually from GitHub Actions with `workflow_dispatch`
 and choose one trigger or `all`.
 

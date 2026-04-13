@@ -475,6 +475,149 @@ Deno.test('session_reminder renders the correct local time for every supported t
   }
 });
 
+Deno.test('session_reminder uses the message template that matches the session type', async () => {
+  const testCases = [
+    {
+      sessionName: 'Practice 1',
+      sessionType: 'Practice 1',
+      expectedText: 'P1|John|Practice 1',
+    },
+    {
+      sessionName: 'Qualifying',
+      sessionType: 'Qualifying',
+      expectedText: 'QUALY|John|Qualifying',
+    },
+    {
+      sessionName: 'Sprint',
+      sessionType: 'Sprint',
+      expectedText: 'SPRINT|John|Sprint',
+    },
+    {
+      sessionName: 'Race',
+      sessionType: 'Race',
+      expectedText: 'RACE|John|Race',
+    },
+  ] as const;
+
+  for (const testCase of testCases) {
+    const userRepository = new InMemoryUserRepository([
+      {
+        userId: 1,
+        firstName: 'John',
+        username: 'john_doe',
+        status: 'active',
+        timezone: 'UTC',
+      },
+    ]);
+    const settingsRepository = new InMemorySettingsRepository({
+      practice_1_reminder_msg: 'P1|{name}|{session_type}',
+      practice_2_reminder_msg: 'P2|{name}|{session_type}',
+      practice_3_reminder_msg: 'P3|{name}|{session_type}',
+      qualifying_reminder_msg: 'QUALY|{name}|{session_type}',
+      sprint_reminder_msg: 'SPRINT|{name}|{session_type}',
+      race_reminder_msg: 'RACE|{name}|{session_type}',
+      session_reminder_msg: 'FALLBACK|{name}|{session_type}',
+      alert_lead_time: '15',
+      post_race_delta: '45',
+    });
+    const messagingService = new RecordingMessagingService();
+    const notificationLogRepository = new InMemoryNotificationLogRepository();
+    const sessionProvider = new StubSessionProvider(
+      'OpenF1',
+      buildSession({
+        sessionName: testCase.sessionName,
+        sessionType: testCase.sessionType,
+        dateStart: new Date('2026-04-10T11:30:00Z'),
+      }),
+      null,
+      null,
+    );
+    const useCase = new WakeUpUseCase(
+      sessionProvider,
+      settingsRepository,
+      userRepository,
+      messagingService,
+      notificationLogRepository,
+      {
+        enforceWeeklyDigestWindow: true,
+        enforceSessionReminderWindow: true,
+      },
+    );
+
+    const result = await useCase.execute('session_reminder', new Date('2026-04-10T11:20:00Z'));
+
+    if (result.action_taken !== 'session_reminder_sent') {
+      throw new Error(`Unexpected action for ${testCase.sessionType}: ${result.action_taken}`);
+    }
+
+    if (messagingService.sentMessages.length !== 1) {
+      throw new Error(`Expected one message for ${testCase.sessionType}.`);
+    }
+
+    const [message] = messagingService.sentMessages;
+    if (message.text !== testCase.expectedText) {
+      throw new Error(
+        `Unexpected message text for ${testCase.sessionType}: ${message.text}`,
+      );
+    }
+  }
+});
+
+Deno.test('session_reminder falls back to session_reminder_msg when a specific template is missing', async () => {
+  const userRepository = new InMemoryUserRepository([
+    {
+      userId: 1,
+      firstName: 'John',
+      username: 'john_doe',
+      status: 'active',
+      timezone: 'UTC',
+    },
+  ]);
+  const settingsRepository = new InMemorySettingsRepository({
+    session_reminder_msg: 'FALLBACK|{name}|{session_type}',
+    alert_lead_time: '15',
+    post_race_delta: '45',
+  });
+  const messagingService = new RecordingMessagingService();
+  const notificationLogRepository = new InMemoryNotificationLogRepository();
+  const sessionProvider = new StubSessionProvider(
+    'OpenF1',
+    buildSession({
+      sessionName: 'Practice 1',
+      sessionType: 'Practice 1',
+      dateStart: new Date('2026-04-10T11:30:00Z'),
+    }),
+    null,
+    null,
+  );
+  const useCase = new WakeUpUseCase(
+    sessionProvider,
+    settingsRepository,
+    userRepository,
+    messagingService,
+    notificationLogRepository,
+    {
+      enforceWeeklyDigestWindow: true,
+      enforceSessionReminderWindow: true,
+    },
+  );
+
+  const result = await useCase.execute('session_reminder', new Date('2026-04-10T11:20:00Z'));
+
+  if (result.action_taken !== 'session_reminder_sent') {
+    throw new Error(`Unexpected action: ${result.action_taken}`);
+  }
+
+  if (messagingService.sentMessages.length !== 1) {
+    throw new Error('Expected one fallback message.');
+  }
+
+  const [message] = messagingService.sentMessages;
+  if (message.text !== 'FALLBACK|John|Practice 1') {
+    throw new Error(`Unexpected fallback message text: ${message.text}`);
+  }
+});
+
 Deno.test('post_race_briefing skips sending when the completed race is past the maximum window', async () => {
   const userRepository = new InMemoryUserRepository([
     {

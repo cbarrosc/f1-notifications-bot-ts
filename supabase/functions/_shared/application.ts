@@ -454,7 +454,7 @@ export class WakeUpUseCase {
       return response;
     }
 
-    const template = await this.settingsRepository.getValue('session_reminder_msg');
+    const template = await this.getSessionReminderTemplate(nextSession);
     const notificationKey = buildSessionReminderNotificationKey(nextSession);
     let messagesSent = 0;
     for (const user of activeUsers) {
@@ -616,6 +616,40 @@ export class WakeUpUseCase {
 
     return maxWindow;
   }
+
+  private async getSessionReminderTemplate(session: {
+    sessionName: string;
+    sessionType: string | null;
+  }): Promise<string> {
+    const sessionLabel = session.sessionType ?? session.sessionName;
+    const preferredKeys = getSessionReminderSettingKeys(sessionLabel);
+
+    let lastError: Error | null = null;
+    for (const key of preferredKeys) {
+      try {
+        const template = await this.settingsRepository.getValue(key);
+        logger.info('Selected session reminder template', {
+          sessionLabel,
+          settingKey: key,
+          usedFallback: key === 'session_reminder_msg',
+        });
+        return template;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown bot setting error.');
+        logger.warn('Session reminder template lookup failed', {
+          sessionLabel,
+          settingKey: key,
+          error: lastError.message,
+        });
+      }
+    }
+
+    logger.error('No session reminder template could be resolved', {
+      sessionLabel,
+      triedKeys: preferredKeys,
+    });
+    throw lastError ?? new Error('Missing session reminder message template.');
+  }
 }
 
 function buildSessionPayload(
@@ -673,6 +707,34 @@ function renderSessionReminderMessage(
     .replace('{flag}', formatTimezoneFlag(timezone))
     .replace('{session_type}', sessionType)
     .replace('{tz}', timezone);
+}
+
+function getSessionReminderSettingKeys(sessionLabel: string): string[] {
+  if (sessionLabel === 'Practice 1') {
+    return ['practice_1_reminder_msg', 'session_reminder_msg'];
+  }
+
+  if (sessionLabel === 'Practice 2') {
+    return ['practice_2_reminder_msg', 'session_reminder_msg'];
+  }
+
+  if (sessionLabel === 'Practice 3') {
+    return ['practice_3_reminder_msg', 'session_reminder_msg'];
+  }
+
+  if (sessionLabel === 'Qualifying') {
+    return ['qualifying_reminder_msg', 'session_reminder_msg'];
+  }
+
+  if (sessionLabel === 'Sprint') {
+    return ['sprint_reminder_msg', 'session_reminder_msg'];
+  }
+
+  if (sessionLabel === 'Race') {
+    return ['race_reminder_msg', 'session_reminder_msg'];
+  }
+
+  return ['session_reminder_msg'];
 }
 
 function renderPostRaceBriefingMessage(

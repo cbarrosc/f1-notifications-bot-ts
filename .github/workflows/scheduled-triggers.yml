@@ -50,7 +50,7 @@ jobs:
             exit 0
           fi
 
-          if [[ "${{ github.event.schedule }}" == "0 9 * * 1" ]]; then
+          if [[ "${{ github.event.schedule }}" == "0 16 * * 1" ]]; then
             printf 'triggers<<EOF\nweekly_digest\nEOF\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi

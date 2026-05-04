@@ -16,9 +16,13 @@
     "supabase:stop": "supabase stop",
     "functions:serve:webhook": "supabase functions serve telegram-webhook --env-file supabase/.env.local",
     "functions:serve:wake-up": "supabase functions serve wake-up --env-file supabase/.env.local",
+    "functions:serve:planner-v2": "supabase functions serve fn-planner-v2 --env-file supabase/.env.local",
+    "functions:serve:dispatcher-v2": "supabase functions serve fn-dispatcher-v2 --env-file supabase/.env.local",
     "functions:deploy:all": "supabase functions deploy --use-api",
     "functions:deploy:webhook": "supabase functions deploy telegram-webhook",
-    "functions:deploy:wake-up": "supabase functions deploy wake-up"
+    "functions:deploy:wake-up": "supabase functions deploy wake-up",
+    "functions:deploy:planner-v2": "supabase functions deploy fn-planner-v2",
+    "functions:deploy:dispatcher-v2": "supabase functions deploy fn-dispatcher-v2"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",

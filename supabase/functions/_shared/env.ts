@@ -7,6 +7,9 @@ export interface RuntimeConfig {
   disableWeeklyDigestWindow: boolean;
   disableSessionReminderWindow: boolean;
   disablePostRaceBriefingWindow: boolean;
+  dispatcherV2DryRun: boolean;
+  dispatcherV2BatchSize: number;
+  dispatcherV2Allowlist: number[];
 }
 
 export function getRuntimeConfig(): RuntimeConfig {
@@ -22,6 +25,9 @@ export function getRuntimeConfig(): RuntimeConfig {
     disableWeeklyDigestWindow: getBooleanEnv('DISABLE_WEEKLY_DIGEST_WINDOW', false),
     disableSessionReminderWindow: getBooleanEnv('DISABLE_SESSION_REMINDER_WINDOW', false),
     disablePostRaceBriefingWindow: getBooleanEnv('DISABLE_POST_RACE_BRIEFING_WINDOW', false),
+    dispatcherV2DryRun: getBooleanEnv('DISPATCHER_V2_DRY_RUN', true),
+    dispatcherV2BatchSize: getNumericEnv('DISPATCHER_V2_BATCH_SIZE', 25),
+    dispatcherV2Allowlist: getIntegerListEnv('DISPATCHER_V2_ALLOWLIST'),
   };
 }
 
@@ -55,4 +61,30 @@ function getBooleanEnv(name: string, defaultValue: boolean): boolean {
   }
 
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+function getNumericEnv(name: string, defaultValue: number): number {
+  const value = Deno.env.get(name);
+  if (!value) {
+    return defaultValue;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+  if (Number.isNaN(parsedValue) || parsedValue <= 0) {
+    return defaultValue;
+  }
+
+  return parsedValue;
+}
+
+function getIntegerListEnv(name: string): number[] {
+  const value = Deno.env.get(name);
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map((entry) => Number.parseInt(entry.trim(), 10))
+    .filter((entry) => Number.isFinite(entry));
 }

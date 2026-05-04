@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.wake-up]
 verify_jwt = false
+
+[functions.fn-planner-v2]
+verify_jwt = false
+
+[functions.fn-dispatcher-v2]
+verify_jwt = false

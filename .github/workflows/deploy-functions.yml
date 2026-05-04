@@ -28,6 +28,9 @@ jobs:
       DISABLE_WEEKLY_DIGEST_WINDOW: ${{ secrets.DISABLE_WEEKLY_DIGEST_WINDOW }}
       DISABLE_SESSION_REMINDER_WINDOW: ${{ secrets.DISABLE_SESSION_REMINDER_WINDOW }}
       DISABLE_POST_RACE_BRIEFING_WINDOW: ${{ secrets.DISABLE_POST_RACE_BRIEFING_WINDOW }}
+      DISPATCHER_V2_DRY_RUN: ${{ secrets.DISPATCHER_V2_DRY_RUN }}
+      DISPATCHER_V2_BATCH_SIZE: ${{ secrets.DISPATCHER_V2_BATCH_SIZE }}
+      DISPATCHER_V2_ALLOWLIST: ${{ secrets.DISPATCHER_V2_ALLOWLIST }}
 
     steps:
       - name: Checkout repository
@@ -84,7 +87,22 @@ jobs:
             secrets+=("DISABLE_POST_RACE_BRIEFING_WINDOW=$DISABLE_POST_RACE_BRIEFING_WINDOW")
           fi
 
+          if [[ -n "$DISPATCHER_V2_DRY_RUN" ]]; then
+            secrets+=("DISPATCHER_V2_DRY_RUN=$DISPATCHER_V2_DRY_RUN")
+          fi
+
+          if [[ -n "$DISPATCHER_V2_BATCH_SIZE" ]]; then
+            secrets+=("DISPATCHER_V2_BATCH_SIZE=$DISPATCHER_V2_BATCH_SIZE")
+          fi
+
+          if [[ -n "$DISPATCHER_V2_ALLOWLIST" ]]; then
+            secrets+=("DISPATCHER_V2_ALLOWLIST=$DISPATCHER_V2_ALLOWLIST")
+          fi
+
           npx supabase secrets set "${secrets[@]}" --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: Deploy Edge Functions
+        # `supabase functions deploy` deploys every local function directory, including
+        # the legacy path (`telegram-webhook`, `wake-up`) and the parallel v2 rollout
+        # (`fn-planner-v2`, `fn-dispatcher-v2`).
         run: npx supabase functions deploy --project-ref "$SUPABASE_PROJECT_ID" --use-api

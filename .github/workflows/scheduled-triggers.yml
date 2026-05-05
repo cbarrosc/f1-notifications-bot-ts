@@ -1,9 +1,7 @@
 name: F1 Bot Scheduled Triggers
 
 on:
-  schedule:
-    - cron: '0 16 * * 1'
-    - cron: '*/15 * * * 4,5,6,0,1'
+  # Legacy v1 fallback only. Automatic scheduling is now owned by Supabase pg_cron v2.
   workflow_dispatch:
     inputs:
       trigger_type:
@@ -24,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: scheduled-triggers-${{ github.event.schedule || github.event.inputs.trigger_type || github.run_id }}
+  group: scheduled-triggers-${{ github.event.inputs.trigger_type || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -38,24 +36,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            selected="${{ github.event.inputs.trigger_type }}"
+          selected="${{ github.event.inputs.trigger_type }}"
 
-            if [[ "$selected" == "all" ]]; then
-              printf 'triggers<<EOF\nweekly_digest\nsession_reminder\npost_race_briefing\nEOF\n' >> "$GITHUB_OUTPUT"
-            else
-              printf 'triggers<<EOF\n%s\nEOF\n' "$selected" >> "$GITHUB_OUTPUT"
-            fi
-
-            exit 0
+          if [[ "$selected" == "all" ]]; then
+            printf 'triggers<<EOF\nweekly_digest\nsession_reminder\npost_race_briefing\nEOF\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'triggers<<EOF\n%s\nEOF\n' "$selected" >> "$GITHUB_OUTPUT"
           fi
-
-          if [[ "${{ github.event.schedule }}" == "0 16 * * 1" ]]; then
-            printf 'triggers<<EOF\nweekly_digest\nEOF\n' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          printf 'triggers<<EOF\nsession_reminder\npost_race_briefing\nEOF\n' >> "$GITHUB_OUTPUT"
 
       - name: Dispatch wake-up request(s)
         shell: bash

@@ -157,32 +157,25 @@ With a single hosted Supabase environment, the recommended policy is:
 That means `develop` should not deploy to Supabase while the project still has
 only one hosted environment.
 
-## Scheduled wake-up dispatch
+## Scheduled notification pipeline
 
-The hosted `wake-up` function is triggered by the GitHub Actions workflow
-[`scheduled-triggers.yml`](.github/workflows/scheduled-triggers.yml).
+Automatic scheduling is owned by Supabase `pg_cron` through the notification
+pipeline v2 migration. GitHub Actions deploys functions, but it does not run
+notification cron jobs.
 
-It uses the production function URL and bearer token from repository secrets:
+The v2 scheduler creates two Supabase cron jobs:
 
-- `APP_SUPABASE_URL`
-- `SECRET_TOKEN`
+- `fn-planner-v2-weekly`: calls `fn-planner-v2` to enqueue upcoming notifications
+- `fn-dispatcher-v2-minute`: calls `fn-dispatcher-v2` to deliver due queue items
 
-Default schedule:
-
-- every Monday at `16:00 UTC`: dispatch `weekly_digest`
-- every 15 minutes from Thursday to Monday (`4,5,6,0,1`): dispatch `session_reminder` and `post_race_briefing`
-
-This intentionally relies on the backend use cases to decide whether they are
-inside or outside the send window. That keeps the scheduler simple and makes it
-safer across time zones and unusual race weekends.
+This intentionally keeps schedule ownership close to the Supabase queue and
+lets the backend decide whether each notification is inside or outside its send
+window.
 
 `post_race_briefing` supports:
 
 - `post_race_delta`: minimum minutes after the race end before sending
 - `post_race_max_window`: optional maximum minutes after the race end during which sending is still allowed
-
-You can also trigger it manually from GitHub Actions with `workflow_dispatch`
-and choose one trigger or `all`.
 
 ## Commit convention
 

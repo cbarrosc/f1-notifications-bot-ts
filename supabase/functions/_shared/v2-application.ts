@@ -33,6 +33,7 @@ const TIMEZONE_FLAG_BY_NAME: Record<string, string> = {
   UTC: '🌐',
 };
 const logger = console;
+const WEEKLY_DIGEST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class PlannerV2UseCase {
   constructor(
@@ -427,12 +428,14 @@ function buildPlannedNotifications(
   const plannedNotifications: PlannedNotification[] = [];
   const raceSourceKey = buildSessionSourceKey(weekend.race);
 
-  plannedNotifications.push({
-    notificationType: 'weekly_digest',
-    dedupeKey: buildQueueDedupeKey('weekly_digest', raceSourceKey),
-    payload: buildWeeklyDigestPayload(raceSourceKey),
-    scheduledFor: new Date(now),
-  });
+  if (weekend.race.dateStart.getTime() - now.getTime() <= WEEKLY_DIGEST_WINDOW_MS) {
+    plannedNotifications.push({
+      notificationType: 'weekly_digest',
+      dedupeKey: buildQueueDedupeKey('weekly_digest', raceSourceKey),
+      payload: buildWeeklyDigestPayload(raceSourceKey),
+      scheduledFor: new Date(now),
+    });
+  }
 
   for (const session of weekend.sessions) {
     const sourceKey = buildSessionSourceKey(session);

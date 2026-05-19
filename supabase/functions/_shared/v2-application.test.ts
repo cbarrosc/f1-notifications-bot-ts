@@ -328,6 +328,34 @@ Deno.test('planner v2 caches sessions and queues all weekend notifications witho
   }
 });
 
+Deno.test('planner v2 does not queue weekly digest outside the 7-day window', async () => {
+  const weekend = buildWeekend();
+  const settingsRepository = new InMemorySettingsRepository({}, {
+    alertLeadTimeMinutes: 15,
+    postRaceDeltaMinutes: 45,
+    postRaceMaxWindowMinutes: null,
+  });
+  const sessionCacheRepository = new InMemorySessionCacheRepository();
+  const queueRepository = new InMemoryNotificationQueueRepository();
+  const useCase = new PlannerV2UseCase(
+    new StubPlannerSource(weekend, null),
+    settingsRepository,
+    sessionCacheRepository,
+    queueRepository,
+  );
+
+  const result = await useCase.execute('weekly', new Date('2026-04-27T06:00:00Z'));
+  const queuedTypes = [...queueRepository.items.values()].map((item) => item.notificationType);
+
+  if (result.queuedCount !== 3) {
+    throw new Error(`Expected 3 queued notifications, received ${result.queuedCount}.`);
+  }
+
+  if (queuedTypes.includes('weekly_digest')) {
+    throw new Error('Weekly digest should not be queued more than 7 days before the race.');
+  }
+});
+
 Deno.test('dispatcher v2 dry-run marks queue items sent and writes delivery logs', async () => {
   const weekend = buildWeekend();
   const settingsRepository = new InMemorySettingsRepository({

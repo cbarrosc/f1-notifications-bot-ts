@@ -332,6 +332,22 @@ curl -i \
   }'
 ```
 
+## Automated tests
+
+The project uses three test layers so CI can catch integration regressions without creating a
+second Supabase environment or sending Telegram messages to real users.
+
+- `npm run test:unit`: runs the existing hexagonal use-case tests with in-memory doubles.
+- `npm run test:integration`: runs hermetic v2 planner/dispatcher flows with OpenF1-style
+  fixtures, fake repositories, and fake Telegram.
+- `npm run test:prod-smoke`: runs read-only production checks. This requires
+  `APP_SUPABASE_URL` and `APP_SUPABASE_SERVICE_ROLE_KEY`, never writes to Supabase, and never
+  sends Telegram messages. It checks recent delivery logs over the last 2 hours by default; set
+  `PROD_SMOKE_DELIVERY_LOG_LOOKBACK_HOURS` to override that window. It is exposed through the
+  manual `Production Smoke` GitHub workflow.
+
+The default `npm run test` command runs unit and hermetic integration tests only.
+
 ## Important implemented rules
 
 - `session_reminder` uses `bot_settings.alert_lead_time`
@@ -346,7 +362,7 @@ curl -i \
 
 - the `users` table must contain `user_id`, `first_name`, `username`, `status`, and `timezone`
 - the `bot_settings` table must contain `key` and `value`
-- at minimum, the following settings must exist: `welcome_msg`, `already_registered`, `already_registered_msg`, `subscribe_ok`, `unsubscribe_ok`, `set_country_msg`, `timezone_confirmation_text`, `weekly_summary_msg`, `session_reminder_msg`, `post_race_briefing_msg`, `alert_lead_time`, and `post_race_delta`
+- at minimum, the following settings must exist: `welcome_msg`, `already_registered`, `already_registered_msg`, `subscribe_ok`, `unsubscribe_ok`, `set_country_msg`, `timezone_confirmation_text`, `weekly_summary_msg`, `session_reminder_msg`, `post_race_briefing_msg`, `alert_lead_time`, and `post_race_delta`. Optional session-specific templates include `practice_1_reminder_msg`, `practice_2_reminder_msg`, `practice_3_reminder_msg`, `qualifying_reminder_msg`, `sprint_qualifying_reminder_msg`, `sprint_reminder_msg`, and `race_reminder_msg`.
 - `TELEGRAM_TOKEN` and `APP_SUPABASE_SERVICE_ROLE_KEY` must be valid
 - OpenF1 must be reachable from the function runtime
 - the `notification_deliveries` table must exist so wake-up notifications can be deduplicated per user
@@ -376,6 +392,8 @@ Optional GitHub Actions secrets:
 - `DISABLE_WEEKLY_DIGEST_WINDOW`
 - `DISABLE_SESSION_REMINDER_WINDOW`
 - `DISABLE_POST_RACE_BRIEFING_WINDOW`
+- `DISPATCHER_V2_ALLOWLIST_ENABLED`
+- `DISPATCHER_V2_ALLOWLIST`
 
 The workflow also syncs the runtime secrets to the hosted Supabase project using
 `supabase secrets set`, so the deployed Edge Functions have the values they need

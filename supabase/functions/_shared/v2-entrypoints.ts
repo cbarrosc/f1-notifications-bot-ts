@@ -16,6 +16,8 @@ import { errorResponse, jsonResponse } from './responses.ts';
 import type { PlannerMode } from './v2-domain.ts';
 
 const logger = console;
+type RuntimeDependencies = ReturnType<typeof createRuntimeDependencies>;
+type RuntimeDependenciesFactory = () => RuntimeDependencies;
 
 function createRuntimeDependencies() {
   const config = getRuntimeConfig();
@@ -33,7 +35,25 @@ function createRuntimeDependencies() {
   };
 }
 
-export async function handlePlannerV2(request: Request): Promise<Response> {
+export function createPlannerV2Handler(
+  createDependencies: RuntimeDependenciesFactory = createRuntimeDependencies,
+): (request: Request) => Promise<Response> {
+  return async (request) => await handlePlannerV2Request(request, createDependencies);
+}
+
+export function createDispatcherV2Handler(
+  createDependencies: RuntimeDependenciesFactory = createRuntimeDependencies,
+): (request: Request) => Promise<Response> {
+  return async (request) => await handleDispatcherV2Request(request, createDependencies);
+}
+
+export const handlePlannerV2 = createPlannerV2Handler();
+export const handleDispatcherV2 = createDispatcherV2Handler();
+
+async function handlePlannerV2Request(
+  request: Request,
+  createDependencies: RuntimeDependenciesFactory,
+): Promise<Response> {
   try {
     if (request.method === 'GET') {
       return jsonResponse({ status: 'online', function: 'fn-planner-v2' });
@@ -49,7 +69,7 @@ export async function handlePlannerV2(request: Request): Promise<Response> {
       plannerSource,
       sessionCacheRepository,
       queueRepository,
-    } = createRuntimeDependencies();
+    } = createDependencies();
 
     const authorization = request.headers.get('authorization');
     if (authorization !== `Bearer ${config.secretToken}`) {
@@ -75,7 +95,10 @@ export async function handlePlannerV2(request: Request): Promise<Response> {
   }
 }
 
-export async function handleDispatcherV2(request: Request): Promise<Response> {
+async function handleDispatcherV2Request(
+  request: Request,
+  createDependencies: RuntimeDependenciesFactory,
+): Promise<Response> {
   try {
     if (request.method === 'GET') {
       return jsonResponse({ status: 'online', function: 'fn-dispatcher-v2' });
@@ -94,7 +117,7 @@ export async function handleDispatcherV2(request: Request): Promise<Response> {
       sessionCacheRepository,
       deliveryLogRepository,
       plannerSource,
-    } = createRuntimeDependencies();
+    } = createDependencies();
 
     const authorization = request.headers.get('authorization');
     if (authorization !== `Bearer ${config.secretToken}`) {
@@ -116,6 +139,7 @@ export async function handleDispatcherV2(request: Request): Promise<Response> {
       plannerSource,
       {
         dryRun: config.dispatcherV2DryRun,
+        allowlistEnabled: config.dispatcherV2AllowlistEnabled,
         allowlist: new Set(config.dispatcherV2Allowlist),
         maxRetries: 3,
       },

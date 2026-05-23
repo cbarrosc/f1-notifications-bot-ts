@@ -9,6 +9,7 @@ export interface RuntimeConfig {
   disablePostRaceBriefingWindow: boolean;
   dispatcherV2DryRun: boolean;
   dispatcherV2BatchSize: number;
+  dispatcherV2AllowlistEnabled: boolean;
   dispatcherV2Allowlist: number[];
 }
 
@@ -27,6 +28,7 @@ export function getRuntimeConfig(): RuntimeConfig {
     disablePostRaceBriefingWindow: getBooleanEnv('DISABLE_POST_RACE_BRIEFING_WINDOW', false),
     dispatcherV2DryRun: getBooleanEnv('DISPATCHER_V2_DRY_RUN', true),
     dispatcherV2BatchSize: getNumericEnv('DISPATCHER_V2_BATCH_SIZE', 25),
+    dispatcherV2AllowlistEnabled: getBooleanEnv('DISPATCHER_V2_ALLOWLIST_ENABLED', false),
     dispatcherV2Allowlist: getIntegerListEnv('DISPATCHER_V2_ALLOWLIST'),
   };
 }

@@ -726,6 +726,14 @@ function getSessionReminderSettingKeys(sessionLabel: string): string[] {
     return ['qualifying_reminder_msg', 'session_reminder_msg'];
   }
 
+  if (sessionLabel === 'Sprint Qualifying') {
+    return [
+      'sprint_qualifying_reminder_msg',
+      'qualifying_reminder_msg',
+      'session_reminder_msg',
+    ];
+  }
+
   if (sessionLabel === 'Sprint') {
     return ['sprint_reminder_msg', 'session_reminder_msg'];
   }

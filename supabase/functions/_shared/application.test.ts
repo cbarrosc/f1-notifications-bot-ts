@@ -488,6 +488,11 @@ Deno.test('session_reminder uses the message template that matches the session t
       expectedText: 'QUALY|John|Qualifying',
     },
     {
+      sessionName: 'Sprint Qualifying',
+      sessionType: 'Sprint Qualifying',
+      expectedText: 'SPRINT QUALY|John|Sprint Qualifying',
+    },
+    {
       sessionName: 'Sprint',
       sessionType: 'Sprint',
       expectedText: 'SPRINT|John|Sprint',
@@ -514,6 +519,7 @@ Deno.test('session_reminder uses the message template that matches the session t
       practice_2_reminder_msg: 'P2|{name}|{session_type}',
       practice_3_reminder_msg: 'P3|{name}|{session_type}',
       qualifying_reminder_msg: 'QUALY|{name}|{session_type}',
+      sprint_qualifying_reminder_msg: 'SPRINT QUALY|{name}|{session_type}',
       sprint_reminder_msg: 'SPRINT|{name}|{session_type}',
       race_reminder_msg: 'RACE|{name}|{session_type}',
       session_reminder_msg: 'FALLBACK|{name}|{session_type}',

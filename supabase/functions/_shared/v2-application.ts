@@ -284,7 +284,8 @@ export class DispatcherV2UseCase {
 
     for (const user of recipients) {
       if (
-        !this.options.dryRun && this.options.allowlist.size > 0 &&
+        !this.options.dryRun && this.options.allowlistEnabled &&
+        this.options.allowlist.size > 0 &&
         !this.options.allowlist.has(user.userId)
       ) {
         await this.deliveryLogRepository.recordAttempt({

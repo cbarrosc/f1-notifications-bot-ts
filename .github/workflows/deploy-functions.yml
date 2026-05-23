@@ -30,6 +30,7 @@ jobs:
       DISABLE_POST_RACE_BRIEFING_WINDOW: ${{ secrets.DISABLE_POST_RACE_BRIEFING_WINDOW }}
       DISPATCHER_V2_DRY_RUN: ${{ secrets.DISPATCHER_V2_DRY_RUN }}
       DISPATCHER_V2_BATCH_SIZE: ${{ secrets.DISPATCHER_V2_BATCH_SIZE }}
+      DISPATCHER_V2_ALLOWLIST_ENABLED: ${{ secrets.DISPATCHER_V2_ALLOWLIST_ENABLED }}
       DISPATCHER_V2_ALLOWLIST: ${{ secrets.DISPATCHER_V2_ALLOWLIST }}
 
     steps:
@@ -93,6 +94,10 @@ jobs:
 
           if [[ -n "$DISPATCHER_V2_BATCH_SIZE" ]]; then
             secrets+=("DISPATCHER_V2_BATCH_SIZE=$DISPATCHER_V2_BATCH_SIZE")
+          fi
+
+          if [[ -n "$DISPATCHER_V2_ALLOWLIST_ENABLED" ]]; then
+            secrets+=("DISPATCHER_V2_ALLOWLIST_ENABLED=$DISPATCHER_V2_ALLOWLIST_ENABLED")
           fi
 
           if [[ -n "$DISPATCHER_V2_ALLOWLIST" ]]; then

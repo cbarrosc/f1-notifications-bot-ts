@@ -285,7 +285,8 @@ export class DispatcherV2UseCase {
 
     for (const user of recipients) {
       if (
-        !this.options.dryRun && this.options.allowlist.size > 0 &&
+        !this.options.dryRun && this.options.allowlistEnabled &&
+        this.options.allowlist.size > 0 &&
         !this.options.allowlist.has(user.userId)
       ) {
         await this.deliveryLogRepository.recordAttempt({
@@ -331,6 +332,17 @@ export class DispatcherV2UseCase {
           provider: 'telegram',
           errorMessage,
         });
+
+        const isTerminalTelegramError = errorMessage.includes('blocked') ||
+          errorMessage.includes('chat not found') ||
+          errorMessage.includes('deactivated');
+
+        if (isTerminalTelegramError) {
+          logger.warn(
+            `Deactivating user ${user.userId} due to terminal Telegram error: ${errorMessage}`,
+          );
+          await this.userRepository.updateUserStatus(user.userId, 'inactive');
+        }
       }
     }
 

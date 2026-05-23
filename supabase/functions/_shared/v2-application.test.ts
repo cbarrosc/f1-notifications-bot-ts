@@ -12,7 +12,7 @@ import type {
   QueueUpsertResult,
   RaceWeekend,
 } from './v2-domain.ts';
-import { buildSessionSourceKey } from './v2-domain.ts';
+import { buildSessionSourceKey, getSessionReminderSettingKeys } from './v2-domain.ts';
 import type {
   DeliveryLogRepository,
   NotificationQueueRepository,
@@ -93,6 +93,19 @@ class RecordingMessagingService implements MessagingService {
     return Promise.resolve();
   }
 }
+
+Deno.test('session reminder template keys include sprint qualifying before fallbacks', () => {
+  const keys = getSessionReminderSettingKeys('Sprint Qualifying');
+  const expectedKeys = [
+    'sprint_qualifying_reminder_msg',
+    'qualifying_reminder_msg',
+    'session_reminder_msg',
+  ];
+
+  if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) {
+    throw new Error(`Unexpected sprint qualifying template keys: ${JSON.stringify(keys)}`);
+  }
+});
 
 class InMemorySessionCacheRepository implements SessionCacheRepository {
   readonly sessions = new Map<string, CachedSession>();
@@ -413,6 +426,7 @@ Deno.test('dispatcher v2 dry-run marks queue items sent and writes delivery logs
     new StubPlannerSource(weekend, buildBriefing()),
     {
       dryRun: true,
+      allowlistEnabled: false,
       allowlist: new Set<number>(),
       maxRetries: 3,
     },
@@ -430,6 +444,139 @@ Deno.test('dispatcher v2 dry-run marks queue items sent and writes delivery logs
 
   if (messagingService.sentMessages.length !== 0) {
     throw new Error('Dry-run should not send real messages.');
+  }
+});
+
+Deno.test('dispatcher v2 ignores allowlist when feature flag is disabled', async () => {
+  const weekend = buildWeekend();
+  const sessionCacheRepository = new InMemorySessionCacheRepository();
+  await sessionCacheRepository.upsertSessions([
+    {
+      sourceKey: buildSessionSourceKey(weekend.race),
+      sessionKey: weekend.race.sessionKey,
+      meetingKey: weekend.race.meetingKey,
+      sessionName: weekend.race.sessionName,
+      sessionType: weekend.race.sessionType,
+      meetingName: weekend.race.meetingName,
+      location: weekend.race.location,
+      dateStart: weekend.race.dateStart,
+      dateEnd: weekend.race.dateEnd,
+      seasonYear: 2026,
+      sourceSyncedAt: weekend.sourceSyncedAt,
+    },
+  ]);
+
+  const queueRepository = new InMemoryNotificationQueueRepository();
+  await queueRepository.upsertNotification({
+    notificationType: 'weekly_digest',
+    dedupeKey: `weekly:${buildSessionSourceKey(weekend.race)}`,
+    payload: {
+      notificationType: 'weekly_digest',
+      sourceKey: buildSessionSourceKey(weekend.race),
+      templateKey: 'weekly_summary_msg',
+    },
+    scheduledFor: new Date('2026-05-04T06:00:00Z'),
+  });
+
+  const messagingService = new RecordingMessagingService();
+  const dispatcherUseCase = new DispatcherV2UseCase(
+    queueRepository,
+    sessionCacheRepository,
+    new InMemoryDeliveryLogRepository(),
+    new InMemoryUserRepository([
+      { userId: 1, firstName: 'John', username: 'john', status: 'active', timezone: 'UTC' },
+      { userId: 2, firstName: 'Jane', username: 'jane', status: 'active', timezone: 'UTC' },
+    ]),
+    new InMemorySettingsRepository({
+      weekly_summary_msg: 'Hi {name} {time}',
+    }, {
+      alertLeadTimeMinutes: 15,
+      postRaceDeltaMinutes: 45,
+      postRaceMaxWindowMinutes: null,
+    }),
+    messagingService,
+    new StubPlannerSource(weekend, buildBriefing()),
+    {
+      dryRun: false,
+      allowlistEnabled: false,
+      allowlist: new Set<number>([1]),
+      maxRetries: 3,
+    },
+  );
+
+  const result = await dispatcherUseCase.execute(10);
+  if (result.sentCount !== 1 || messagingService.sentMessages.length !== 2) {
+    throw new Error(
+      `Expected both active users to receive the message: ${JSON.stringify(result)}`,
+    );
+  }
+});
+
+Deno.test('dispatcher v2 applies allowlist when feature flag is enabled', async () => {
+  const weekend = buildWeekend();
+  const sessionCacheRepository = new InMemorySessionCacheRepository();
+  await sessionCacheRepository.upsertSessions([
+    {
+      sourceKey: buildSessionSourceKey(weekend.race),
+      sessionKey: weekend.race.sessionKey,
+      meetingKey: weekend.race.meetingKey,
+      sessionName: weekend.race.sessionName,
+      sessionType: weekend.race.sessionType,
+      meetingName: weekend.race.meetingName,
+      location: weekend.race.location,
+      dateStart: weekend.race.dateStart,
+      dateEnd: weekend.race.dateEnd,
+      seasonYear: 2026,
+      sourceSyncedAt: weekend.sourceSyncedAt,
+    },
+  ]);
+
+  const queueRepository = new InMemoryNotificationQueueRepository();
+  await queueRepository.upsertNotification({
+    notificationType: 'weekly_digest',
+    dedupeKey: `weekly:${buildSessionSourceKey(weekend.race)}`,
+    payload: {
+      notificationType: 'weekly_digest',
+      sourceKey: buildSessionSourceKey(weekend.race),
+      templateKey: 'weekly_summary_msg',
+    },
+    scheduledFor: new Date('2026-05-04T06:00:00Z'),
+  });
+
+  const deliveryLogRepository = new InMemoryDeliveryLogRepository();
+  const messagingService = new RecordingMessagingService();
+  const dispatcherUseCase = new DispatcherV2UseCase(
+    queueRepository,
+    sessionCacheRepository,
+    deliveryLogRepository,
+    new InMemoryUserRepository([
+      { userId: 1, firstName: 'John', username: 'john', status: 'active', timezone: 'UTC' },
+      { userId: 2, firstName: 'Jane', username: 'jane', status: 'active', timezone: 'UTC' },
+    ]),
+    new InMemorySettingsRepository({
+      weekly_summary_msg: 'Hi {name} {time}',
+    }, {
+      alertLeadTimeMinutes: 15,
+      postRaceDeltaMinutes: 45,
+      postRaceMaxWindowMinutes: null,
+    }),
+    messagingService,
+    new StubPlannerSource(weekend, buildBriefing()),
+    {
+      dryRun: false,
+      allowlistEnabled: true,
+      allowlist: new Set<number>([1]),
+      maxRetries: 3,
+    },
+  );
+
+  const result = await dispatcherUseCase.execute(10);
+  const skippedLogs = deliveryLogRepository.entries.filter((entry) => entry.status === 'skipped');
+  if (
+    result.sentCount !== 1 || messagingService.sentMessages.length !== 1 ||
+    skippedLogs.length !== 1
+  ) {
+    throw new Error(`Expected allowlist to send one and skip one: ${JSON.stringify(result)}`);
   }
 });
 
@@ -499,6 +646,7 @@ Deno.test('dispatcher v2 retries failed recipients and preserves successful deli
     new StubPlannerSource(weekend, buildBriefing()),
     {
       dryRun: false,
+      allowlistEnabled: false,
       allowlist: new Set<number>(),
       maxRetries: 3,
     },
@@ -583,6 +731,7 @@ Deno.test('dispatcher v2 marks queue items failed after exceeding max retries', 
     new StubPlannerSource(buildWeekend(), null),
     {
       dryRun: false,
+      allowlistEnabled: false,
       allowlist: new Set<number>(),
       maxRetries: 0,
     },

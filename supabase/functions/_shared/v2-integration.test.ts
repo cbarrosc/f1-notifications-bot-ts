@@ -356,6 +356,36 @@ Deno.test('integration v2 allowlist flag controls active recipient filtering', a
   }
 });
 
+Deno.test('integration v2 deactivates user when messaging service throws blocked error', async () => {
+  const templates = defaultTemplates();
+  const harness = await buildPlannedSprintHarness(templates);
+  const sprint = findSession(harness.weekend, 'Sprint');
+  harness.queueRepository.keepOnlyPending(
+    `session_reminder:${buildSessionSourceKey(sprint)}`,
+  );
+
+  const originalSendMessage = harness.messagingService.sendMessage;
+  harness.messagingService.sendMessage = (chatId: number, text: string) => {
+    if (chatId === 101) {
+      return Promise.reject(new Error('Forbidden: bot was blocked by the user'));
+    }
+    return originalSendMessage.call(harness.messagingService, chatId, text);
+  };
+
+  let updatedUserId: number | null = null;
+  let updatedStatus: UserStatus | null = null;
+  harness.dispatcher['userRepository'].updateUserStatus = (userId: number, status: UserStatus) => {
+    updatedUserId = userId;
+    updatedStatus = status;
+    return Promise.resolve();
+  };
+
+  await harness.dispatcher.execute(10, new Date('2026-05-23T15:45:00Z'));
+
+  assertEquals(updatedUserId, 101);
+  assertEquals(updatedStatus, 'inactive');
+});
+
 function buildSettingsRepository(templates: Record<string, string>): IntegrationSettingsRepository {
   return new IntegrationSettingsRepository(templates, {
     alertLeadTimeMinutes: 15,

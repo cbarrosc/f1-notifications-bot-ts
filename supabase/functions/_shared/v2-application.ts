@@ -332,6 +332,16 @@ export class DispatcherV2UseCase {
           provider: 'telegram',
           errorMessage,
         });
+
+        const isTerminalTelegramError =
+          errorMessage.includes('blocked') ||
+          errorMessage.includes('chat not found') ||
+          errorMessage.includes('deactivated');
+
+        if (isTerminalTelegramError) {
+          logger.warn(`Deactivating user ${user.userId} due to terminal Telegram error: ${errorMessage}`);
+          await this.userRepository.updateUserStatus(user.userId, 'inactive');
+        }
       }
     }
 

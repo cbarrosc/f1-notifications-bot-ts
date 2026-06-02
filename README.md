@@ -177,6 +177,15 @@ window.
 - `post_race_delta`: minimum minutes after the race end before sending
 - `post_race_max_window`: optional maximum minutes after the race end during which sending is still allowed
 
+The cleanup scheduler creates one conservative Supabase cron job:
+
+- `fn-notification-storage-cleanup-weekly`: runs Wednesdays at `08:30 UTC`
+
+Cleanup never deletes `pending` or `processing` queue items, and only removes
+terminal queue rows after 90 days. It also prunes old delivery logs through
+those queue rows, legacy delivery markers after 365 days, cached sessions after
+365 days, and `cron.job_run_details` after 30 days.
+
 ## Commit convention
 
 This repository enforces Conventional Commits through a Git `commit-msg` hook.

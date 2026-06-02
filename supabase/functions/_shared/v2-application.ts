@@ -41,6 +41,7 @@ export class PlannerV2UseCase {
     private readonly settingsRepository: SettingsRepository,
     private readonly sessionCacheRepository: SessionCacheRepository,
     private readonly queueRepository: NotificationQueueRepository,
+    private readonly userRepository?: UserRepository,
   ) {}
 
   async execute(mode: PlannerMode, now = new Date()): Promise<PlannerResult> {
@@ -63,9 +64,11 @@ export class PlannerV2UseCase {
     );
 
     const settings = await this.settingsRepository.getBotSettings();
+    const weeklyDigestTimezones = await this.listWeeklyDigestTimezones();
     const plannedNotifications = buildPlannedNotifications(weekend, now, {
       alertLeadTimeMinutes: settings.alertLeadTimeMinutes ?? 15,
       postRaceDeltaMinutes: settings.postRaceDeltaMinutes ?? 45,
+      weeklyDigestTimezones,
     });
 
     let queuedCount = 0;
@@ -89,6 +92,19 @@ export class PlannerV2UseCase {
       meetingName: weekend.race.meetingName,
       raceStartUtc: weekend.race.dateStart.toISOString(),
     };
+  }
+
+  private async listWeeklyDigestTimezones(): Promise<Array<string | null>> {
+    if (!this.userRepository) {
+      return [null];
+    }
+
+    const timezones = new Set<string>();
+    for (const user of await this.userRepository.listActiveUsers()) {
+      timezones.add(normalizeTimezone(user.timezone));
+    }
+
+    return [...timezones].sort();
   }
 }
 
@@ -163,14 +179,15 @@ export class DispatcherV2UseCase {
       const activeUsers = (await this.userRepository.listActiveUsers()).filter((user) =>
         !deliveredRecipients.has(user.userId)
       );
+      const recipients = filterRecipientsForQueueItem(activeUsers, item);
 
-      if (activeUsers.length === 0) {
+      if (recipients.length === 0) {
         await this.queueRepository.markAsSent(item.id);
         return 'skipped';
       }
 
       if (item.payload.notificationType === 'post_race_briefing') {
-        return await this.processPostRaceBriefing(item, activeUsers, now);
+        return await this.processPostRaceBriefing(item, recipients, now);
       }
 
       const cachedSession = await this.sessionCacheRepository.getSessionBySourceKey(
@@ -183,7 +200,7 @@ export class DispatcherV2UseCase {
       if (item.payload.notificationType === 'weekly_digest') {
         return await this.processSessionBasedQueueItem(
           item,
-          activeUsers,
+          recipients,
           cachedSession,
           (user) =>
             this.renderWeeklyDigest(
@@ -196,7 +213,7 @@ export class DispatcherV2UseCase {
 
       return await this.processSessionBasedQueueItem(
         item,
-        activeUsers,
+        recipients,
         cachedSession,
         (user) =>
           this.renderSessionReminder(
@@ -435,18 +452,25 @@ function buildPlannedNotifications(
   settings: {
     alertLeadTimeMinutes: number;
     postRaceDeltaMinutes: number;
+    weeklyDigestTimezones: Array<string | null>;
   },
 ): PlannedNotification[] {
   const plannedNotifications: PlannedNotification[] = [];
   const raceSourceKey = buildSessionSourceKey(weekend.race);
 
   if (weekend.race.dateStart.getTime() - now.getTime() <= WEEKLY_DIGEST_WINDOW_MS) {
-    plannedNotifications.push({
-      notificationType: 'weekly_digest',
-      dedupeKey: buildQueueDedupeKey('weekly_digest', raceSourceKey),
-      payload: buildWeeklyDigestPayload(raceSourceKey),
-      scheduledFor: new Date(now),
-    });
+    for (const timezone of settings.weeklyDigestTimezones) {
+      plannedNotifications.push({
+        notificationType: 'weekly_digest',
+        dedupeKey: timezone
+          ? buildWeeklyDigestDedupeKey(raceSourceKey, timezone)
+          : buildQueueDedupeKey('weekly_digest', raceSourceKey),
+        payload: buildWeeklyDigestPayload(raceSourceKey, timezone ?? undefined),
+        scheduledFor: timezone
+          ? getRaceWeekMondayNoonUtc(weekend.race.dateStart, timezone)
+          : new Date(now),
+      });
+    }
   }
 
   for (const session of weekend.sessions) {
@@ -473,6 +497,42 @@ function buildPlannedNotifications(
   }
 
   return plannedNotifications;
+}
+
+function filterRecipientsForQueueItem(recipients: User[], item: QueueItem): User[] {
+  const payload = item.payload;
+  if (payload.notificationType !== 'weekly_digest' || !payload.targetTimezone) {
+    return recipients;
+  }
+
+  return recipients.filter((user) => normalizeTimezone(user.timezone) === payload.targetTimezone);
+}
+
+function buildWeeklyDigestDedupeKey(raceSourceKey: string, targetTimezone: string): string {
+  return `${buildQueueDedupeKey('weekly_digest', raceSourceKey)}:timezone:${targetTimezone}`;
+}
+
+function getRaceWeekMondayNoonUtc(raceStart: Date, timezone: string): Date {
+  const localRaceDate = getZonedDateTimeParts(raceStart, timezone);
+  const daysSinceMonday = localRaceDate.weekday;
+  const mondayNoonLocal = new Date(Date.UTC(
+    localRaceDate.year,
+    localRaceDate.month - 1,
+    localRaceDate.day - daysSinceMonday,
+    12,
+    0,
+    0,
+    0,
+  ));
+
+  return zonedLocalTimeToUtc({
+    year: mondayNoonLocal.getUTCFullYear(),
+    month: mondayNoonLocal.getUTCMonth() + 1,
+    day: mondayNoonLocal.getUTCDate(),
+    hour: 12,
+    minute: 0,
+    second: 0,
+  }, timezone);
 }
 
 function renderWeeklySummaryMessage(
@@ -555,6 +615,96 @@ function isValidTimeZone(timezone: string): boolean {
   } catch {
     return false;
   }
+}
+
+function normalizeTimezone(timezone: string | null): string {
+  return timezone && isValidTimeZone(timezone) ? timezone : 'UTC';
+}
+
+function zonedLocalTimeToUtc(
+  target: {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+    minute: number;
+    second: number;
+  },
+  timezone: string,
+): Date {
+  const safeTimeZone = normalizeTimezone(timezone);
+  const targetAsUtc = Date.UTC(
+    target.year,
+    target.month - 1,
+    target.day,
+    target.hour,
+    target.minute,
+    target.second,
+  );
+  let instant = new Date(targetAsUtc);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = getZonedDateTimeParts(instant, safeTimeZone);
+    const actualAsUtc = Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second,
+    );
+    const deltaMs = actualAsUtc - targetAsUtc;
+    if (deltaMs === 0) {
+      return instant;
+    }
+
+    instant = new Date(instant.getTime() - deltaMs);
+  }
+
+  return instant;
+}
+
+function getZonedDateTimeParts(value: Date, timezone: string): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  weekday: number;
+} {
+  const safeTimeZone = normalizeTimezone(timezone);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: safeTimeZone,
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(value);
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  const weekdayByName: Record<string, number> = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  };
+
+  return {
+    year: Number(byType.get('year')),
+    month: Number(byType.get('month')),
+    day: Number(byType.get('day')),
+    hour: Number(byType.get('hour')),
+    minute: Number(byType.get('minute')),
+    second: Number(byType.get('second')),
+    weekday: weekdayByName[byType.get('weekday') ?? 'Mon'] ?? 0,
+  };
 }
 
 function getWeeklyDigestPayload(payload: QueueItem['payload']) {

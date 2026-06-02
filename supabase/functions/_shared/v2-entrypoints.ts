@@ -66,6 +66,7 @@ async function handlePlannerV2Request(
     const {
       config,
       settingsRepository,
+      userRepository,
       plannerSource,
       sessionCacheRepository,
       queueRepository,
@@ -84,6 +85,7 @@ async function handlePlannerV2Request(
       settingsRepository,
       sessionCacheRepository,
       queueRepository,
+      userRepository,
     );
 
     return jsonResponse(await useCase.execute(mode));

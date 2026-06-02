@@ -350,8 +350,9 @@ The default `npm run test` command runs unit and hermetic integration tests only
 
 ## Important implemented rules
 
-- `session_reminder` uses `bot_settings.alert_lead_time`
+- `session_reminder` uses `bot_settings.alert_lead_time` and stays based on the real session time
 - `weekly_digest` only sends when the next Race is 7 days away or less
+- `weekly_digest` is scheduled per active user timezone so it lands near 12:00 local time
 - `post_race_briefing` is only built when a completed Race exists
 - `post_race_briefing` uses `bot_settings.post_race_delta`
 - `DISABLE_WEEKLY_DIGEST_WINDOW=true` bypasses the weekly digest window check

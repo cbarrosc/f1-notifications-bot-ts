@@ -45,6 +45,7 @@ export interface WeeklyDigestPayload {
   notificationType: 'weekly_digest';
   sourceKey: string;
   templateKey: 'weekly_summary_msg';
+  targetTimezone?: string;
 }
 
 export interface SessionReminderPayload {
@@ -148,11 +149,15 @@ export function buildQueueDedupeKey(
   return `${notificationType}:${sourceKey}`;
 }
 
-export function buildWeeklyDigestPayload(sourceKey: string): WeeklyDigestPayload {
+export function buildWeeklyDigestPayload(
+  sourceKey: string,
+  targetTimezone?: string,
+): WeeklyDigestPayload {
   return {
     notificationType: 'weekly_digest',
     sourceKey,
     templateKey: 'weekly_summary_msg',
+    ...(targetTimezone ? { targetTimezone } : {}),
   };
 }
 

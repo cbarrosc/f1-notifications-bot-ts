@@ -301,6 +301,38 @@ function buildBriefing(): PostRaceBriefing {
   };
 }
 
+function assertLocalTime(
+  value: Date,
+  timezone: string,
+  expected: { weekday: string; hour: string; minute: string },
+): void {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(value);
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  const actual = {
+    weekday: byType.get('weekday'),
+    hour: byType.get('hour'),
+    minute: byType.get('minute'),
+  };
+
+  if (
+    actual.weekday !== expected.weekday ||
+    actual.hour !== expected.hour ||
+    actual.minute !== expected.minute
+  ) {
+    throw new Error(
+      `Expected ${value.toISOString()} to be ${JSON.stringify(expected)} in ${timezone}; got ${
+        JSON.stringify(actual)
+      }.`,
+    );
+  }
+}
+
 Deno.test('planner v2 caches sessions and queues all weekend notifications without duplicates', async () => {
   const weekend = buildWeekend();
   const settingsRepository = new InMemorySettingsRepository({}, {
@@ -341,6 +373,89 @@ Deno.test('planner v2 caches sessions and queues all weekend notifications witho
   }
 });
 
+Deno.test('planner v2 queues weekly digest per active user timezone at local Monday noon', async () => {
+  const weekend = buildWeekend();
+  const settingsRepository = new InMemorySettingsRepository({}, {
+    alertLeadTimeMinutes: 15,
+    postRaceDeltaMinutes: 45,
+    postRaceMaxWindowMinutes: null,
+  });
+  const sessionCacheRepository = new InMemorySessionCacheRepository();
+  const queueRepository = new InMemoryNotificationQueueRepository();
+  const raceSourceKey = buildSessionSourceKey(weekend.race);
+  const useCase = new PlannerV2UseCase(
+    new StubPlannerSource(weekend, null),
+    settingsRepository,
+    sessionCacheRepository,
+    queueRepository,
+    new InMemoryUserRepository([
+      {
+        userId: 1,
+        firstName: 'Camilo',
+        username: 'camilo',
+        status: 'active',
+        timezone: 'America/Santiago',
+      },
+      {
+        userId: 2,
+        firstName: 'Marta',
+        username: 'marta',
+        status: 'active',
+        timezone: 'Europe/Madrid',
+      },
+      {
+        userId: 3,
+        firstName: 'Inactive',
+        username: 'inactive',
+        status: 'inactive',
+        timezone: 'UTC',
+      },
+    ]),
+  );
+
+  const result = await useCase.execute('weekly', new Date('2026-05-04T06:00:00Z'));
+  const weeklyItems = [...queueRepository.items.values()].filter((item) =>
+    item.notificationType === 'weekly_digest'
+  );
+
+  if (result.queuedCount !== 5 || weeklyItems.length !== 2) {
+    throw new Error(`Expected 2 timezone weekly digests: ${JSON.stringify(result)}`);
+  }
+
+  const santiagoItem = queueRepository.items.get(
+    `weekly_digest:${raceSourceKey}:timezone:America/Santiago`,
+  );
+  const madridItem = queueRepository.items.get(
+    `weekly_digest:${raceSourceKey}:timezone:Europe/Madrid`,
+  );
+
+  if (!santiagoItem || !madridItem) {
+    throw new Error(
+      `Missing timezone dedupe keys: ${JSON.stringify([...queueRepository.items.keys()])}`,
+    );
+  }
+
+  if (
+    santiagoItem.payload.notificationType !== 'weekly_digest' ||
+    santiagoItem.payload.targetTimezone !== 'America/Santiago' ||
+    madridItem.payload.notificationType !== 'weekly_digest' ||
+    madridItem.payload.targetTimezone !== 'Europe/Madrid'
+  ) {
+    throw new Error('Weekly digest payloads should include their target timezones.');
+  }
+
+  assertLocalTime(santiagoItem.scheduledFor, 'America/Santiago', {
+    weekday: 'Mon',
+    hour: '12',
+    minute: '00',
+  });
+  assertLocalTime(madridItem.scheduledFor, 'Europe/Madrid', {
+    weekday: 'Mon',
+    hour: '12',
+    minute: '00',
+  });
+});
+
 Deno.test('planner v2 does not queue weekly digest outside the 7-day window', async () => {
   const weekend = buildWeekend();
   const settingsRepository = new InMemorySettingsRepository({}, {
@@ -366,6 +481,167 @@ Deno.test('planner v2 does not queue weekly digest outside the 7-day window', as
 
   if (queuedTypes.includes('weekly_digest')) {
     throw new Error('Weekly digest should not be queued more than 7 days before the race.');
+  }
+});
+
+Deno.test('dispatcher v2 sends targeted weekly digest only to users in target timezone', async () => {
+  const weekend = buildWeekend();
+  const raceSourceKey = buildSessionSourceKey(weekend.race);
+  const sessionCacheRepository = new InMemorySessionCacheRepository();
+  await sessionCacheRepository.upsertSessions([
+    {
+      sourceKey: raceSourceKey,
+      sessionKey: weekend.race.sessionKey,
+      meetingKey: weekend.race.meetingKey,
+      sessionName: weekend.race.sessionName,
+      sessionType: weekend.race.sessionType,
+      meetingName: weekend.race.meetingName,
+      location: weekend.race.location,
+      dateStart: weekend.race.dateStart,
+      dateEnd: weekend.race.dateEnd,
+      seasonYear: 2026,
+      sourceSyncedAt: weekend.sourceSyncedAt,
+    },
+  ]);
+
+  const queueRepository = new InMemoryNotificationQueueRepository();
+  await queueRepository.upsertNotification({
+    notificationType: 'weekly_digest',
+    dedupeKey: `weekly_digest:${raceSourceKey}:timezone:America/Santiago`,
+    payload: {
+      notificationType: 'weekly_digest',
+      sourceKey: raceSourceKey,
+      templateKey: 'weekly_summary_msg',
+      targetTimezone: 'America/Santiago',
+    },
+    scheduledFor: new Date('2026-05-04T16:00:00Z'),
+  });
+
+  const deliveryLogRepository = new InMemoryDeliveryLogRepository();
+  const messagingService = new RecordingMessagingService();
+  const dispatcherUseCase = new DispatcherV2UseCase(
+    queueRepository,
+    sessionCacheRepository,
+    deliveryLogRepository,
+    new InMemoryUserRepository([
+      {
+        userId: 1,
+        firstName: 'Camilo',
+        username: 'camilo',
+        status: 'active',
+        timezone: 'America/Santiago',
+      },
+      {
+        userId: 2,
+        firstName: 'Marta',
+        username: 'marta',
+        status: 'active',
+        timezone: 'Europe/Madrid',
+      },
+    ]),
+    new InMemorySettingsRepository({
+      weekly_summary_msg: 'Hi {name} {tz}',
+    }, {
+      alertLeadTimeMinutes: 15,
+      postRaceDeltaMinutes: 45,
+      postRaceMaxWindowMinutes: null,
+    }),
+    messagingService,
+    new StubPlannerSource(weekend, buildBriefing()),
+    {
+      dryRun: false,
+      allowlistEnabled: false,
+      allowlist: new Set<number>(),
+      maxRetries: 3,
+    },
+  );
+
+  const result = await dispatcherUseCase.execute(10);
+
+  if (
+    result.sentCount !== 1 ||
+    messagingService.sentMessages.length !== 1 ||
+    messagingService.sentMessages[0].chatId !== 1 ||
+    deliveryLogRepository.entries.length !== 1
+  ) {
+    throw new Error(`Expected only Santiago user to receive digest: ${JSON.stringify(result)}`);
+  }
+});
+
+Deno.test('dispatcher v2 keeps legacy weekly digest without target timezone global', async () => {
+  const weekend = buildWeekend();
+  const raceSourceKey = buildSessionSourceKey(weekend.race);
+  const sessionCacheRepository = new InMemorySessionCacheRepository();
+  await sessionCacheRepository.upsertSessions([
+    {
+      sourceKey: raceSourceKey,
+      sessionKey: weekend.race.sessionKey,
+      meetingKey: weekend.race.meetingKey,
+      sessionName: weekend.race.sessionName,
+      sessionType: weekend.race.sessionType,
+      meetingName: weekend.race.meetingName,
+      location: weekend.race.location,
+      dateStart: weekend.race.dateStart,
+      dateEnd: weekend.race.dateEnd,
+      seasonYear: 2026,
+      sourceSyncedAt: weekend.sourceSyncedAt,
+    },
+  ]);
+
+  const queueRepository = new InMemoryNotificationQueueRepository();
+  await queueRepository.upsertNotification({
+    notificationType: 'weekly_digest',
+    dedupeKey: `weekly_digest:${raceSourceKey}`,
+    payload: {
+      notificationType: 'weekly_digest',
+      sourceKey: raceSourceKey,
+      templateKey: 'weekly_summary_msg',
+    },
+    scheduledFor: new Date('2026-05-04T06:00:00Z'),
+  });
+
+  const messagingService = new RecordingMessagingService();
+  const dispatcherUseCase = new DispatcherV2UseCase(
+    queueRepository,
+    sessionCacheRepository,
+    new InMemoryDeliveryLogRepository(),
+    new InMemoryUserRepository([
+      {
+        userId: 1,
+        firstName: 'Camilo',
+        username: 'camilo',
+        status: 'active',
+        timezone: 'America/Santiago',
+      },
+      {
+        userId: 2,
+        firstName: 'Marta',
+        username: 'marta',
+        status: 'active',
+        timezone: 'Europe/Madrid',
+      },
+    ]),
+    new InMemorySettingsRepository({
+      weekly_summary_msg: 'Hi {name} {tz}',
+    }, {
+      alertLeadTimeMinutes: 15,
+      postRaceDeltaMinutes: 45,
+      postRaceMaxWindowMinutes: null,
+    }),
+    messagingService,
+    new StubPlannerSource(weekend, buildBriefing()),
+    {
+      dryRun: false,
+      allowlistEnabled: false,
+      allowlist: new Set<number>(),
+      maxRetries: 3,
+    },
+  );
+
+  const result = await dispatcherUseCase.execute(10);
+
+  if (result.sentCount !== 1 || messagingService.sentMessages.length !== 2) {
+    throw new Error(`Expected legacy weekly digest to send globally: ${JSON.stringify(result)}`);
   }
 });
 

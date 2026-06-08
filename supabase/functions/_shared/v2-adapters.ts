@@ -212,15 +212,26 @@ export class SupabaseNotificationQueueRepository implements NotificationQueueRep
     }
   }
 
-  async markAsPending(queueId: number, retryCount: number, errorMessage: string): Promise<void> {
+  async markAsPending(
+    queueId: number,
+    retryCount: number,
+    errorMessage: string,
+    nextScheduledFor?: Date,
+  ): Promise<void> {
+    const updates: Record<string, unknown> = {
+      status: 'pending',
+      retry_count: retryCount,
+      last_error: errorMessage,
+      locked_at: null,
+    };
+
+    if (nextScheduledFor) {
+      updates.scheduled_for = nextScheduledFor.toISOString();
+    }
+
     const { error } = await this.client
       .from('notification_queue')
-      .update({
-        status: 'pending',
-        retry_count: retryCount,
-        last_error: errorMessage,
-        locked_at: null,
-      })
+      .update(updates)
       .eq('id', queueId);
 
     if (error) {

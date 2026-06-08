@@ -22,7 +22,12 @@ export interface NotificationQueueRepository {
   upsertNotification(item: PlannedNotification): Promise<QueueUpsertResult>;
   claimDueNotifications(batchSize: number): Promise<QueueItem[]>;
   markAsSent(queueId: number): Promise<void>;
-  markAsPending(queueId: number, retryCount: number, errorMessage: string): Promise<void>;
+  markAsPending(
+    queueId: number,
+    retryCount: number,
+    errorMessage: string,
+    nextScheduledFor?: Date,
+  ): Promise<void>;
   markAsFailed(queueId: number, retryCount: number, errorMessage: string): Promise<void>;
 }
 

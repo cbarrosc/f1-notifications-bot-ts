@@ -34,6 +34,11 @@ const TIMEZONE_FLAG_BY_NAME: Record<string, string> = {
 };
 const logger = console;
 const WEEKLY_DIGEST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const POST_RACE_OPENF1_NOT_READY_MESSAGES = [
+  'OpenF1 request failed with status 404.',
+  'Unable to build post-race briefing',
+];
+const POST_RACE_OPENF1_RETRY_BACKOFF_MINUTES = [20, 40, 60];
 
 export class PlannerV2UseCase {
   constructor(
@@ -226,6 +231,7 @@ export class DispatcherV2UseCase {
       return await this.transitionAfterFailure(
         item,
         error instanceof Error ? error.message : 'Unknown dispatcher error.',
+        now,
       );
     }
   }
@@ -289,7 +295,7 @@ export class DispatcherV2UseCase {
       return this.options.dryRun ? 'dry_run' : 'sent';
     }
 
-    return await this.transitionAfterFailure(item, outcome.errorMessage);
+    return await this.transitionAfterFailure(item, outcome.errorMessage, now);
   }
 
   private async deliverToRecipients(
@@ -409,6 +415,7 @@ export class DispatcherV2UseCase {
   private async transitionAfterFailure(
     item: QueueItem,
     errorMessage: string,
+    now?: Date,
   ): Promise<'retrying' | 'failed'> {
     const nextRetryCount = item.retryCount + 1;
     logger.warn('Dispatcher V2 will transition queue item after failure', {
@@ -422,9 +429,33 @@ export class DispatcherV2UseCase {
       return 'failed';
     }
 
-    await this.queueRepository.markAsPending(item.id, nextRetryCount, errorMessage);
+    const nextScheduledFor = now && shouldApplyPostRaceOpenF1Backoff(item, errorMessage)
+      ? addMinutes(now, getPostRaceOpenF1BackoffMinutes(nextRetryCount))
+      : undefined;
+
+    await this.queueRepository.markAsPending(
+      item.id,
+      nextRetryCount,
+      errorMessage,
+      nextScheduledFor,
+    );
     return 'retrying';
   }
+}
+
+function shouldApplyPostRaceOpenF1Backoff(item: QueueItem, errorMessage: string): boolean {
+  return item.payload.notificationType === 'post_race_briefing' &&
+    POST_RACE_OPENF1_NOT_READY_MESSAGES.some((message) => errorMessage.includes(message));
+}
+
+function getPostRaceOpenF1BackoffMinutes(retryCount: number): number {
+  return POST_RACE_OPENF1_RETRY_BACKOFF_MINUTES[
+    Math.min(retryCount - 1, POST_RACE_OPENF1_RETRY_BACKOFF_MINUTES.length - 1)
+  ];
+}
+
+function addMinutes(date: Date, minutes: number): Date {
+  return new Date(date.getTime() + minutes * 60_000);
 }
 
 function toCachedSessionInput(

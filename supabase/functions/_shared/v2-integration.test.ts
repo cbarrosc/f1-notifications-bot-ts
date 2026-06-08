@@ -167,13 +167,19 @@ class IntegrationNotificationQueueRepository implements NotificationQueueReposit
     return Promise.resolve();
   }
 
-  markAsPending(queueId: number, retryCount: number, errorMessage: string): Promise<void> {
+  markAsPending(
+    queueId: number,
+    retryCount: number,
+    errorMessage: string,
+    nextScheduledFor?: Date,
+  ): Promise<void> {
     const item = this.requireById(queueId);
     this.items.set(item.dedupeKey, {
       ...item,
       status: 'pending',
       retryCount,
       lastError: errorMessage,
+      scheduledFor: nextScheduledFor ?? item.scheduledFor,
       lockedAt: null,
     });
 

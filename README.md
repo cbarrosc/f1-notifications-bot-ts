@@ -177,6 +177,11 @@ window.
 - `post_race_delta`: minimum minutes after the race end before sending
 - `post_race_max_window`: optional maximum minutes after the race end during which sending is still allowed
 
+Production should use `bot_settings.post_race_delta = 60`. When OpenF1 race
+results are not ready for a queued `post_race_briefing`, dispatcher retries are
+rescheduled with 20, 40, then 60 minute backoff while keeping the existing
+maximum retry count.
+
 The cleanup scheduler creates one conservative Supabase cron job:
 
 - `fn-notification-storage-cleanup-weekly`: runs Wednesdays at `08:30 UTC`

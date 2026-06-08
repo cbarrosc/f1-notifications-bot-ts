@@ -184,13 +184,19 @@ class InMemoryNotificationQueueRepository implements NotificationQueueRepository
     return Promise.resolve();
   }
 
-  markAsPending(queueId: number, retryCount: number, errorMessage: string): Promise<void> {
+  markAsPending(
+    queueId: number,
+    retryCount: number,
+    errorMessage: string,
+    nextScheduledFor?: Date,
+  ): Promise<void> {
     const item = this.requireById(queueId);
     this.items.set(item.dedupeKey, {
       ...item,
       status: 'pending',
       retryCount,
       lastError: errorMessage,
+      scheduledFor: nextScheduledFor ?? item.scheduledFor,
       lockedAt: null,
     });
 
@@ -246,6 +252,7 @@ class StubPlannerSource implements PlannerSource {
   constructor(
     private readonly weekend: RaceWeekend | null,
     private readonly briefing: PostRaceBriefing | null,
+    private readonly briefingError?: Error,
   ) {}
 
   getUpcomingRaceWeekend(_when: Date, _mode: PlannerMode): Promise<RaceWeekend | null> {
@@ -253,6 +260,10 @@ class StubPlannerSource implements PlannerSource {
   }
 
   getPostRaceBriefingForSession(_sessionKey: number): Promise<PostRaceBriefing | null> {
+    if (this.briefingError) {
+      return Promise.reject(this.briefingError);
+    }
+
     return Promise.resolve(this.briefing);
   }
 }
@@ -950,6 +961,310 @@ Deno.test('dispatcher v2 retries failed recipients and preserves successful deli
 
   if (messagingService.sentMessages.filter((message) => message.chatId === 1).length !== 1) {
     throw new Error('Recipient 1 should not receive duplicates across retries.');
+  }
+});
+
+Deno.test('dispatcher v2 backs off post-race OpenF1 not-ready retries by retry count', async () => {
+  const retryCases = [
+    { currentRetryCount: 0, expectedScheduledFor: '2026-05-10T17:20:00.000Z' },
+    { currentRetryCount: 1, expectedScheduledFor: '2026-05-10T17:40:00.000Z' },
+    { currentRetryCount: 2, expectedScheduledFor: '2026-05-10T18:00:00.000Z' },
+  ];
+
+  for (const retryCase of retryCases) {
+    const race = buildRaceSession();
+    const sourceKey = buildSessionSourceKey(race);
+    const queueRepository = new InMemoryNotificationQueueRepository();
+    await queueRepository.upsertNotification({
+      notificationType: 'post_race_briefing',
+      dedupeKey: `briefing:${sourceKey}`,
+      payload: {
+        notificationType: 'post_race_briefing',
+        sourceKey,
+        templateKey: 'post_race_briefing_msg',
+      },
+      scheduledFor: new Date('2026-05-10T17:00:00Z'),
+    });
+
+    const queueItem = [...queueRepository.items.values()][0];
+    queueRepository.items.set(queueItem.dedupeKey, {
+      ...queueItem,
+      retryCount: retryCase.currentRetryCount,
+    });
+
+    const sessionCacheRepository = new InMemorySessionCacheRepository();
+    await sessionCacheRepository.upsertSessions([
+      {
+        sourceKey,
+        sessionKey: race.sessionKey,
+        meetingKey: race.meetingKey,
+        sessionName: race.sessionName,
+        sessionType: race.sessionType,
+        meetingName: race.meetingName,
+        location: race.location,
+        dateStart: race.dateStart,
+        dateEnd: race.dateEnd,
+        seasonYear: 2026,
+        sourceSyncedAt: new Date('2026-05-10T16:00:00Z'),
+      },
+    ]);
+
+    const dispatcherUseCase = new DispatcherV2UseCase(
+      queueRepository,
+      sessionCacheRepository,
+      new InMemoryDeliveryLogRepository(),
+      new InMemoryUserRepository([
+        { userId: 1, firstName: 'John', username: 'john', status: 'active', timezone: 'UTC' },
+      ]),
+      new InMemorySettingsRepository({
+        post_race_briefing_msg: '{name}',
+      }, {
+        alertLeadTimeMinutes: 15,
+        postRaceDeltaMinutes: 45,
+        postRaceMaxWindowMinutes: null,
+      }),
+      new RecordingMessagingService(),
+      new StubPlannerSource(buildWeekend(), null),
+      {
+        dryRun: false,
+        allowlistEnabled: false,
+        allowlist: new Set<number>(),
+        maxRetries: 3,
+      },
+    );
+
+    const result = await dispatcherUseCase.execute(10, new Date('2026-05-10T17:00:00Z'));
+    const updatedItem = [...queueRepository.items.values()][0];
+
+    if (result.retryingCount !== 1 || updatedItem.status !== 'pending') {
+      throw new Error(`Expected post-race item to retry: ${JSON.stringify(result)}`);
+    }
+
+    if (updatedItem.scheduledFor.toISOString() !== retryCase.expectedScheduledFor) {
+      throw new Error(
+        `Expected retry ${
+          retryCase.currentRetryCount + 1
+        } scheduled for ${retryCase.expectedScheduledFor}, received ${updatedItem.scheduledFor.toISOString()}.`,
+      );
+    }
+  }
+});
+
+Deno.test('dispatcher v2 backs off post-race OpenF1 404 retries', async () => {
+  const race = buildRaceSession();
+  const sourceKey = buildSessionSourceKey(race);
+  const sessionCacheRepository = new InMemorySessionCacheRepository();
+  await sessionCacheRepository.upsertSessions([
+    {
+      sourceKey,
+      sessionKey: race.sessionKey,
+      meetingKey: race.meetingKey,
+      sessionName: race.sessionName,
+      sessionType: race.sessionType,
+      meetingName: race.meetingName,
+      location: race.location,
+      dateStart: race.dateStart,
+      dateEnd: race.dateEnd,
+      seasonYear: 2026,
+      sourceSyncedAt: new Date('2026-05-10T16:00:00Z'),
+    },
+  ]);
+
+  const queueRepository = new InMemoryNotificationQueueRepository();
+  await queueRepository.upsertNotification({
+    notificationType: 'post_race_briefing',
+    dedupeKey: `briefing:${sourceKey}`,
+    payload: {
+      notificationType: 'post_race_briefing',
+      sourceKey,
+      templateKey: 'post_race_briefing_msg',
+    },
+    scheduledFor: new Date('2026-05-10T17:00:00Z'),
+  });
+
+  const dispatcherUseCase = new DispatcherV2UseCase(
+    queueRepository,
+    sessionCacheRepository,
+    new InMemoryDeliveryLogRepository(),
+    new InMemoryUserRepository([
+      { userId: 1, firstName: 'John', username: 'john', status: 'active', timezone: 'UTC' },
+    ]),
+    new InMemorySettingsRepository({
+      post_race_briefing_msg: '{name}',
+    }, {
+      alertLeadTimeMinutes: 15,
+      postRaceDeltaMinutes: 45,
+      postRaceMaxWindowMinutes: null,
+    }),
+    new RecordingMessagingService(),
+    new StubPlannerSource(
+      buildWeekend(),
+      null,
+      new Error('OpenF1 request failed with status 404.'),
+    ),
+    {
+      dryRun: false,
+      allowlistEnabled: false,
+      allowlist: new Set<number>(),
+      maxRetries: 3,
+    },
+  );
+
+  const result = await dispatcherUseCase.execute(10, new Date('2026-05-10T17:00:00Z'));
+  const queueItem = [...queueRepository.items.values()][0];
+
+  if (
+    result.retryingCount !== 1 ||
+    queueItem.scheduledFor.toISOString() !== '2026-05-10T17:20:00.000Z'
+  ) {
+    throw new Error(`Expected OpenF1 404 retry backoff: ${JSON.stringify(queueItem)}`);
+  }
+});
+
+Deno.test('dispatcher v2 leaves session reminder retry schedule unchanged', async () => {
+  const weekend = buildWeekend();
+  const qualifying = weekend.sessions.find((session) => session.sessionName === 'Qualifying');
+  if (!qualifying) {
+    throw new Error('Missing qualifying session fixture.');
+  }
+
+  const sourceKey = buildSessionSourceKey(qualifying);
+  const sessionCacheRepository = new InMemorySessionCacheRepository();
+  await sessionCacheRepository.upsertSessions([
+    {
+      sourceKey,
+      sessionKey: qualifying.sessionKey,
+      meetingKey: qualifying.meetingKey,
+      sessionName: qualifying.sessionName,
+      sessionType: qualifying.sessionType,
+      meetingName: qualifying.meetingName,
+      location: qualifying.location,
+      dateStart: qualifying.dateStart,
+      dateEnd: qualifying.dateEnd,
+      seasonYear: 2026,
+      sourceSyncedAt: weekend.sourceSyncedAt,
+    },
+  ]);
+
+  const queueRepository = new InMemoryNotificationQueueRepository();
+  await queueRepository.upsertNotification({
+    notificationType: 'session_reminder',
+    dedupeKey: `session_reminder:${sourceKey}`,
+    payload: {
+      notificationType: 'session_reminder',
+      sourceKey,
+      templateKeys: ['session_reminder_msg'],
+    },
+    scheduledFor: new Date('2026-05-04T06:00:00Z'),
+  });
+
+  const messagingService = new RecordingMessagingService();
+  messagingService.failedRecipients.add(1);
+  const dispatcherUseCase = new DispatcherV2UseCase(
+    queueRepository,
+    sessionCacheRepository,
+    new InMemoryDeliveryLogRepository(),
+    new InMemoryUserRepository([
+      { userId: 1, firstName: 'John', username: 'john', status: 'active', timezone: 'UTC' },
+    ]),
+    new InMemorySettingsRepository({
+      session_reminder_msg: 'Reminder {name} {session_type} {local_time}',
+    }, {
+      alertLeadTimeMinutes: 15,
+      postRaceDeltaMinutes: 45,
+      postRaceMaxWindowMinutes: null,
+    }),
+    messagingService,
+    new StubPlannerSource(weekend, buildBriefing()),
+    {
+      dryRun: false,
+      allowlistEnabled: false,
+      allowlist: new Set<number>(),
+      maxRetries: 3,
+    },
+  );
+
+  const result = await dispatcherUseCase.execute(10, new Date('2026-05-04T06:00:00Z'));
+  const queueItem = [...queueRepository.items.values()][0];
+
+  if (
+    result.retryingCount !== 1 ||
+    queueItem.scheduledFor.toISOString() !== '2026-05-04T06:00:00.000Z'
+  ) {
+    throw new Error(
+      `Expected session retry schedule to be unchanged: ${JSON.stringify(queueItem)}`,
+    );
+  }
+});
+
+Deno.test('dispatcher v2 does not back off post-race delivery failures', async () => {
+  const race = buildRaceSession();
+  const sourceKey = buildSessionSourceKey(race);
+  const sessionCacheRepository = new InMemorySessionCacheRepository();
+  await sessionCacheRepository.upsertSessions([
+    {
+      sourceKey,
+      sessionKey: race.sessionKey,
+      meetingKey: race.meetingKey,
+      sessionName: race.sessionName,
+      sessionType: race.sessionType,
+      meetingName: race.meetingName,
+      location: race.location,
+      dateStart: race.dateStart,
+      dateEnd: race.dateEnd,
+      seasonYear: 2026,
+      sourceSyncedAt: new Date('2026-05-10T16:00:00Z'),
+    },
+  ]);
+
+  const queueRepository = new InMemoryNotificationQueueRepository();
+  await queueRepository.upsertNotification({
+    notificationType: 'post_race_briefing',
+    dedupeKey: `briefing:${sourceKey}`,
+    payload: {
+      notificationType: 'post_race_briefing',
+      sourceKey,
+      templateKey: 'post_race_briefing_msg',
+    },
+    scheduledFor: new Date('2026-05-10T17:00:00Z'),
+  });
+
+  const messagingService = new RecordingMessagingService();
+  messagingService.failedRecipients.add(1);
+  const dispatcherUseCase = new DispatcherV2UseCase(
+    queueRepository,
+    sessionCacheRepository,
+    new InMemoryDeliveryLogRepository(),
+    new InMemoryUserRepository([
+      { userId: 1, firstName: 'John', username: 'john', status: 'active', timezone: 'UTC' },
+    ]),
+    new InMemorySettingsRepository({
+      post_race_briefing_msg: '{name} {winner}',
+    }, {
+      alertLeadTimeMinutes: 15,
+      postRaceDeltaMinutes: 45,
+      postRaceMaxWindowMinutes: null,
+    }),
+    messagingService,
+    new StubPlannerSource(buildWeekend(), buildBriefing()),
+    {
+      dryRun: false,
+      allowlistEnabled: false,
+      allowlist: new Set<number>(),
+      maxRetries: 3,
+    },
+  );
+
+  const result = await dispatcherUseCase.execute(10, new Date('2026-05-10T17:00:00Z'));
+  const queueItem = [...queueRepository.items.values()][0];
+
+  if (
+    result.retryingCount !== 1 ||
+    queueItem.scheduledFor.toISOString() !== '2026-05-10T17:00:00.000Z'
+  ) {
+    throw new Error(
+      `Expected delivery failure schedule to be unchanged: ${JSON.stringify(queueItem)}`,
+    );
   }
 });
 
